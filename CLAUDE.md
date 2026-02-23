@@ -1,0 +1,87 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+**plinth-video** is a multi-platform Video Quality of Experience (QoE) SDK framework — a proof-of-concept. It measures playback metrics (Video Start Time, Rebuffer Time, Played Time, Watched Time) and reports them via HTTP beacons.
+
+## Architecture
+
+Three-layer architecture designed to minimize per-platform maintenance:
+
+```
+plinth-core (Rust)
+  ├── → wasm target  → plinth-js (TypeScript)  → plinth-hlsjs (Hls.js integration)
+  └── → native .a    → plinth-swift (Swift)    → plinth-avplayer (AVPlayer integration)
+```
+
+### Layer 1: `plinth-core` (Rust)
+- State machine, time tracking, beacon building, beacon queuing, JSON serialization
+- Compiled to WebAssembly for web; native static/dynamic lib for iOS/Android
+- **Does NOT perform HTTP** — returns serialized beacon batches for the platform layer to transmit
+- Heartbeat timer is platform-driven: platform calls `tick(now_ms)` periodically; core checks if the interval has elapsed
+
+### Layer 2: Platform frameworks (`plinth-js`, `plinth-swift`, etc.)
+- Written in the platform's native language (TypeScript, Swift, Kotlin)
+- Owns all platform I/O: HTTP fetch, timers, timestamps, user agent string
+- Loads and wraps the core (Wasm or native FFI)
+- Calls `tick(now_ms)` on an interval; sends HTTP POST when core returns beacon data
+
+### Layer 3: Player integrations (`plinth-hlsjs`, `plinth-avplayer`, etc.)
+- Maps player-specific events/APIs to the core's `PlayerEvent` enum
+- Implements the public SDK API: `initialize(player, component, metadata)`, `updateMetadata(metadata)`, `destroy()`
+- Hides layers 1 and 2 from the application developer
+
+## Key Specs & Docs
+
+All specs are authoritative — implement against them:
+
+- `docs/prd.md` — requirements, personas, goals
+- `docs/player-state-machine.mermaid` — 11-state machine with guards (read before touching state logic)
+- `docs/beacon-payload.schema.json` — JSON Schema for beacon payloads (source of truth for types)
+- `docs/beacon-payload.samples.json` — concrete examples of a full play session lifecycle
+- `TASKS.md` — phased task list (update as work progresses)
+
+## Player State Machine
+
+11 states: `Idle → Loading → Ready → PlayAttempt → Buffering → Playing → Paused → Seeking → Rebuffering → Ended → Error`
+
+Critical seek guard: `pre_seek_state` must be tracked. `seekEnd` resolves to `Playing`, `Rebuffering`, or `Paused` based on the state active when `seekStart` fired.
+
+## Beacon HTTP Protocol
+
+- **POST** to `http://localhost:3000/beacon` (default, configurable)
+- Project key: `p123456789` (hardcoded for PoC)
+- Payload: `{ "beacons": [...] }` — a batch of one or more beacons, always from a single play session, in ascending `seq` order
+- `session_open` (seq=0) is sent at `PlayAttempt`; it carries `video`, `client`, and `sdk` metadata — no `state` or `metrics`
+- All other beacons include cumulative `metrics` snapshot and current `state`
+- Heartbeat beacons additionally include `playhead_ms`
+
+## Language & Toolchain per Component
+
+| Component | Language | Toolchain |
+|---|---|---|
+| `plinth-core` | Rust | `cargo`, `wasm-pack` for Wasm target |
+| `plinth-js` | TypeScript | `bun` |
+| `plinth-hlsjs` | TypeScript | `bun` |
+| `plinth-swift` | Swift | Xcode / Swift Package Manager |
+| `plinth-avplayer` | Swift | Xcode / Swift Package Manager |
+| Dev server | TypeScript | `bun` |
+
+## Build Commands (once implemented)
+
+```bash
+# Rust core — native
+cargo build -p plinth-core
+cargo test -p plinth-core
+cargo test -p plinth-core -- <test_name>   # run single test
+
+# Rust core — Wasm
+wasm-pack build crates/plinth-core --target web
+
+# JS packages (from repo root or package dir)
+bun install
+bun test
+bun run build
+```
