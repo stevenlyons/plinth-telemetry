@@ -1,0 +1,5 @@
+{
+  "name": "plinth-video",
+  "private": true,
+  "workspaces": ["packages/*"]
+}

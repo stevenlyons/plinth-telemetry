@@ -1,0 +1,14 @@
+{
+  "name": "@plinth/js",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build:wasm": "wasm-pack build ../../crates/plinth-core --target web --out-dir ../../packages/plinth-js/wasm",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/bun": "latest"
+  }
+}

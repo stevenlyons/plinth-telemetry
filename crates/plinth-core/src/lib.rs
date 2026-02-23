@@ -5,6 +5,9 @@ pub mod metrics;
 pub mod session;
 pub mod state;
 
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
+
 // Convenient re-exports for the most common public types.
 pub use beacon::{
     Beacon, BeaconBatch, BeaconEvent, ClientMetadata, PlayerError, QualityLevel, SdkComponent,
