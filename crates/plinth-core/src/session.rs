@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::beacon::{
@@ -10,7 +11,7 @@ use crate::state::PlayerState;
 
 // ── Session metadata ──────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionMeta {
     pub video: VideoMetadata,
     pub client: ClientMetadata,

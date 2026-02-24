@@ -1,7 +1,10 @@
+use serde::{Deserialize, Serialize};
+
 use crate::beacon::QualityLevel;
 
 /// All player inputs that the session state machine can act on.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum PlayerEvent {
     /// Source URL assigned: Idle → Loading.
     Load { src: String },
@@ -28,6 +31,7 @@ pub enum PlayerEvent {
     /// Player error occurred.
     Error {
         code: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         message: Option<String>,
         fatal: bool,
     },

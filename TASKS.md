@@ -28,17 +28,22 @@ A proof-of-concept SDK framework for measuring Video Quality of Experience acros
 
 ---
 
-## Future Tasks
+## Completed Tasks (continued)
 
 ### Phase 2 — JavaScript/Web Platform Framework (`plinth-js`)
 
-- [ ] Set up TypeScript/JavaScript package (npm/bun workspace)
-- [ ] Load and initialize the Wasm core module
-- [ ] Implement JS-side platform bindings: HTTP fetch, timer (setInterval), timestamp (Date.now / performance.now)
-- [ ] Expose platform framework API: `init(config)`, `destroy()`
-- [ ] Wire platform timer callbacks to core heartbeat
-- [ ] Bundle for browser (ESM + CJS targets, tree-shakeable)
-- [ ] Minimize bundle size (measure and document baseline)
+- [x] Set up bun workspace (`package.json`, `packages/plinth-js/`)
+- [x] Add `cdylib` crate-type + `wasm-bindgen` dep to `plinth-core`
+- [x] Add `Serialize/Deserialize` to `Config`, `SessionMeta`, `PlayerEvent`
+- [x] Implement `WasmSession` in `src/wasm.rs` (JSON-over-wasm-bindgen boundary)
+- [x] Build Wasm via wasm-pack → `packages/plinth-js/wasm/`
+- [x] Implement `PlinthSession` TypeScript class (heartbeat, fire-and-forget POST)
+- [x] Write `src/types.ts`, `src/poster.ts`, `src/index.ts`
+- [x] Write 14 unit tests with mock Wasm module (all passing)
+
+---
+
+## Future Tasks
 
 ### Phase 3 — Hls.js Player Integration (`plinth-hlsjs`)
 
