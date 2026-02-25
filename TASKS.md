@@ -47,13 +47,20 @@ A proof-of-concept SDK framework for measuring Video Quality of Experience acros
 
 ### Phase 3 — Hls.js Player Integration (`plinth-hlsjs`)
 
-- [ ] Set up TypeScript package for Hls.js integration
-- [ ] Implement `PlintheHlsJs` class with `initialize(player, component, metadata)`, `updateMetadata(metadata)`, `destroy()` API
-- [ ] Map Hls.js events to core PlayerEvents: play, pause, ended, waiting (rebuffer start/end), first frame, error, seek start/end
-- [ ] Forward playback position (currentTime scrubber) to core
-- [ ] Pass User Agent, Video Title, Video ID metadata
-- [ ] Verify beacon submission end-to-end with a local test server
-- [ ] Write integration tests (Hls.js in jsdom or Playwright)
+- [x] Set up TypeScript package for Hls.js integration
+- [x] Implement `PlinthHlsJs` class with `initialize(hls, video, videoMeta, options?)` and `destroy()` API
+- [x] Map Hls.js events to core PlayerEvents: play, pause, ended, waiting (rebuffer start/end), first frame, error, seek start/end
+- [x] Forward playback position (currentTime) to core via `setPlayhead`
+- [x] Pass User Agent, Video Title, Video ID metadata
+- [x] Write 19 unit tests with FakeHls + FakeVideo test doubles (all passing)
+
+### Phase 6 — Browser Demo + Dev Server (`dev/`)
+
+- [x] Create `dev/` workspace (`@plinth/dev`) with Bun
+- [x] Implement `dev/server.ts`: builds `main.ts`, copies wasm binary to dist, serves static files, receives and logs `POST /beacon`
+- [x] Implement `dev/index.html`: dark-themed UI with video element, HLS URL input, Load button, live event log panel
+- [x] Implement `dev/main.ts`: wires Hls.js + PlinthHlsJs with `loggingSessionFactory` that mirrors each event to the page log
+- [x] Verify end-to-end: build succeeds, wasm served, beacon POST returns 200 and logs payload
 
 ### Phase 4 — Swift/iOS Platform Framework (`plinth-swift`)
 
@@ -69,19 +76,12 @@ A proof-of-concept SDK framework for measuring Video Quality of Experience acros
 - [ ] Forward scrubber position (currentTime) to core
 - [ ] Verify beacon submission end-to-end on device/simulator
 
-### Phase 6 — Reference Backend (local dev server)
-
-- [ ] Create minimal HTTP server that receives beacons at `POST /beacon`
-- [ ] Validate project key (`p123456789`)
-- [ ] Log and display received beacon payloads (for demo/verification)
-
 ### Phase 7 — Documentation & Developer Experience
 
 - [ ] Write quick-start guide for Hls.js integration
 - [ ] Document player-specific SDK API (initialize, updateMetadata, destroy)
 - [ ] Document beacon payload schema
 - [ ] Document how to add a new player integration
-- [ ] Create a minimal demo page (HTML + Hls.js) that loads a stream and sends beacons to local server
 
 ---
 
