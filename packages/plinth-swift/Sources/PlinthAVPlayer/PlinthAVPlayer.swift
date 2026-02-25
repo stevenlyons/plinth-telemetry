@@ -57,10 +57,15 @@ public final class PlinthAVPlayer {
 
     /// True once the first `.playing` timeControlStatus is observed after a play attempt.
     private var hasFiredFirstFrame = false
-    /// Set while the item-ended notification is being processed to suppress a false pause.
-    private var isEndingNaturally = false
+    /// True while `seek(to:)` wrapper is in flight — prevents double seek events from periodic observer.
+    private var isHandlingProgrammaticSeek = false
     /// Last observed playhead (ms) — used as `from_ms` on seek start.
     private(set) var lastPlayheadMs: UInt64 = 0
+
+    // Seek state machine — coalesces multiple jumping periodic ticks into one seek pair.
+    private var seekInProgress = false
+    private var seekCandidateFromMs: UInt64 = 0
+    private var seekCandidateToMs: UInt64 = 0
 
     // KVO observations (cancelled in destroy)
     private var currentItemObservation: NSKeyValueObservation?
@@ -131,16 +136,24 @@ public final class PlinthAVPlayer {
 
     /// Seek the player to `time`, emitting `seek_start` and `seek_end` events.
     ///
-    /// Use this instead of calling `player.seek(to:)` directly so the SDK
-    /// can record accurate seek metrics.
+    /// Use this instead of calling `player.seek(to:)` directly when you want
+    /// zero-tolerance seeking with accurate seek metrics. The SDK also detects
+    /// seeks automatically via the periodic time observer for scrubber-initiated seeks.
     public func seek(to time: CMTime) {
         guard !isDestroyed else { return }
+        seekInProgress = false  // cancel any pending periodic seek
         let fromMs = lastPlayheadMs
+        isHandlingProgrammaticSeek = true
         session?.processEvent(.seekStart(fromMs: fromMs))
 
         player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-            guard let self, !self.isDestroyed else { return }
+            guard let self, !self.isDestroyed else {
+                self?.isHandlingProgrammaticSeek = false
+                return
+            }
             let toMs = UInt64(max(0, CMTimeGetSeconds(time)) * 1000)
+            self.lastPlayheadMs = toMs  // prevent periodic observer from double-detecting
+            self.isHandlingProgrammaticSeek = false
             let bufferReady = self.player.currentItem?.isPlaybackLikelyToKeepUp ?? false
             self.session?.processEvent(.seekEnd(toMs: toMs, bufferReady: bufferReady))
         }
@@ -159,7 +172,7 @@ public final class PlinthAVPlayer {
 
     internal func handleLoad(src: String) {
         hasFiredFirstFrame = false
-        isEndingNaturally = false
+        seekInProgress = false
         session?.processEvent(.load(src: src))
     }
 
@@ -219,14 +232,13 @@ public final class PlinthAVPlayer {
         }
 
         // ── timeControlStatus ─────────────────────────────────────────────────
+        // Read from the observed object directly — change.newValue can return nil
+        // for ObjC enum properties in Swift KVO, causing silent guard failures.
         timeControlObservation = player.observe(
-            \.timeControlStatus, options: [.new, .old]
-        ) { [weak self] _, change in
+            \.timeControlStatus, options: [.new]
+        ) { [weak self] observedPlayer, _ in
             guard let self else { return }
-            let new = change.newValue ?? .paused
-            let old = change.oldValue ?? .paused
-            guard new != old else { return }
-
+            let new = observedPlayer.timeControlStatus
             switch new {
             case .waitingToPlayAtSpecifiedRate:
                 self.handleWaiting()
@@ -253,8 +265,23 @@ public final class PlinthAVPlayer {
 
             if oldRate == 0 && newRate > 0 {
                 self.handlePlay()
-            } else if oldRate > 0 && newRate == 0 && !self.isEndingNaturally {
-                self.handlePause()
+            } else if oldRate > 0 && newRate == 0 {
+                // Snapshot the playhead immediately on pause so the next periodic
+                // observer fire sees diff ≈ 0 and doesn't misfire as a seek.
+                let c = CMTimeGetSeconds(player.currentTime())
+                self.lastPlayheadMs = UInt64(max(0, c) * 1000)
+
+                // Suppress false pause when the video ends naturally.
+                // AVPlayerItemDidPlayToEndTime fires async *after* this KVO, so we
+                // check proximity-to-end synchronously here instead.
+                let nearEnd: Bool
+                if let item = player.currentItem {
+                    let d = CMTimeGetSeconds(item.duration)
+                    nearEnd = d.isFinite && d > 0 && c >= d - 0.5
+                } else {
+                    nearEnd = false
+                }
+                if !nearEnd { self.handlePause() }
             }
         }
 
@@ -268,9 +295,7 @@ public final class PlinthAVPlayer {
             guard let self,
                   notification.object as AnyObject === self.player.currentItem as AnyObject
             else { return }
-            self.isEndingNaturally = true
             self.handleEnded()
-            self.isEndingNaturally = false
         }
         notificationTokens.append(endedToken)
 
@@ -303,13 +328,55 @@ public final class PlinthAVPlayer {
         }
         notificationTokens.append(qualityToken)
 
-        // ── Periodic time observer (playhead) ─────────────────────────────────
+        // ── Periodic time observer (playhead + seek detection) ────────────────
+        // AVPlayerItem.timeJumpedNotification does not fire for AVPlayerView scrubber
+        // seeks on macOS, so seeks are detected here via a small state machine:
+        //
+        //  • Each tick checks whether the position jumped discontinuously.
+        //  • On the first jumping tick: record seekCandidateFromMs (pre-jump position).
+        //  • On subsequent jumping ticks: update seekCandidateToMs (drag is still moving).
+        //  • On the first *stable* tick after jumps stop: emit ONE seek_start/seek_end pair.
+        //
+        // This coalesces an entire scrubber drag into a single pair regardless of
+        // how many periodic ticks fire during the drag, and works for both directions.
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
         timeObserverToken = player.addPeriodicTimeObserver(
             forInterval: interval, queue: .main
         ) { [weak self] time in
             guard let self, !self.isDestroyed else { return }
             let ms = UInt64(max(0, CMTimeGetSeconds(time)) * 1000)
+
+            if self.hasFiredFirstFrame && !self.isHandlingProgrammaticSeek {
+                let rate = player.rate
+                let prev = self.lastPlayheadMs
+
+                // A tick is "jumping" if the position moved discontinuously:
+                //   • While playing (rate > 0): position decreased OR advanced much
+                //     more than one interval (~500 ms at 1×).
+                //   • While paused (rate == 0): any change > 200 ms.
+                let isJump: Bool
+                if rate > 0 {
+                    isJump = ms < prev || ms > prev + 250
+                } else {
+                    let diff = ms > prev ? ms - prev : prev - ms
+                    isJump = diff > 250
+                }
+
+                if isJump {
+                    if !self.seekInProgress {
+                        self.seekInProgress = true
+                        self.seekCandidateFromMs = prev
+                    }
+                    self.seekCandidateToMs = ms
+                } else if self.seekInProgress {
+                    // Position has stabilised — emit the single seek pair.
+                    let bufferReady = player.currentItem?.isPlaybackLikelyToKeepUp ?? false
+                    self.session?.processEvent(.seekStart(fromMs: self.seekCandidateFromMs))
+                    self.session?.processEvent(.seekEnd(toMs: self.seekCandidateToMs, bufferReady: bufferReady))
+                    self.seekInProgress = false
+                }
+            }
+
             self.lastPlayheadMs = ms
             self.session?.setPlayhead(ms)
         }
