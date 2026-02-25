@@ -73,7 +73,9 @@ A proof-of-concept SDK framework for measuring Video Quality of Experience acros
 - [x] Write 18 unit tests (all passing) with synchronous `beaconHandler` test seam
 - [x] Write `scripts/build-xcframework.sh` — builds for iOS device, iOS simulator (arm64+x86_64), macOS (arm64+x86_64)
 
-### Phase 5 — AVPlayer Integration (`plinth-avplayer`)
+### Phase 5 — AVPlayer Integration + macOS Demo
+
+#### `plinth-avplayer`
 
 - [x] Add `PlinthAVPlayer` target + `PlinthAVPlayerTests` to `packages/plinth-swift/Package.swift`
 - [x] Implement `PlinthAVPlayer.swift` with `initialize(player:videoMeta:options:)` + `seek(to:)` + `destroy()` API
@@ -83,6 +85,13 @@ A proof-of-concept SDK framework for measuring Video Quality of Experience acros
 - [x] Track `hasFiredFirstFrame` to distinguish first play from resume/rebuffer-recovery
 - [x] Suppress false Pause beacon when item ends naturally (`isEndingNaturally` flag)
 - [x] Write 24 unit tests via internal `handle*` methods — all passing (42 total Swift tests)
+
+#### `samples/macos-demo`
+
+- [x] SwiftUI macOS app (`@main`, `swift run`) with `VideoPlayer` + beacon log sidebar
+- [x] `PlayerViewModel` wires `AVPlayer` → `PlinthAVPlayer` → `beaconHandler` → `@Published` log
+- [x] `BeaconLogView` displays timestamped, colour-coded beacon events scrolled to bottom
+- [x] Pre-filled Mux test stream URL; Load button/Enter key triggers new session
 
 ### Phase 7 — Documentation & Developer Experience
 
