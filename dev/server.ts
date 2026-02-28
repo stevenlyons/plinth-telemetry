@@ -7,7 +7,8 @@ const buildResult = await Bun.build({
   entrypoints: [join(import.meta.dir, "main.ts")],
   outdir: distDir,
   target: "browser",
-  sourcemap: "inline",
+  minify: true,
+  external: ["hls.js"],
 });
 
 if (!buildResult.success) {
