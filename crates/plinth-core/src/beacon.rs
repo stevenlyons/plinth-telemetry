@@ -1,11 +1,12 @@
-use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 use crate::metrics::Metrics;
 use crate::state::PlayerState;
 
+miniserde::make_place!(Place);
+
 /// Beacon event type — drives which additional fields are present.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BeaconEvent {
     SessionOpen,
     FirstFrame,
@@ -21,9 +22,59 @@ pub enum BeaconEvent {
     SessionEnd,
 }
 
-/// A single beacon. Flat struct with `skip_serializing_if` on optional fields
-/// so the JSON matches the schema's conditional-field rules without a wrapper enum.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl BeaconEvent {
+    fn as_str(&self) -> &'static str {
+        match self {
+            BeaconEvent::SessionOpen => "session_open",
+            BeaconEvent::FirstFrame => "first_frame",
+            BeaconEvent::Pause => "pause",
+            BeaconEvent::Play => "play",
+            BeaconEvent::SeekStart => "seek_start",
+            BeaconEvent::SeekEnd => "seek_end",
+            BeaconEvent::RebufferStart => "rebuffer_start",
+            BeaconEvent::RebufferEnd => "rebuffer_end",
+            BeaconEvent::QualityChange => "quality_change",
+            BeaconEvent::Error => "error",
+            BeaconEvent::Heartbeat => "heartbeat",
+            BeaconEvent::SessionEnd => "session_end",
+        }
+    }
+}
+
+impl miniserde::ser::Serialize for BeaconEvent {
+    fn begin(&self) -> miniserde::ser::Fragment {
+        miniserde::ser::Fragment::Str(Cow::Borrowed(self.as_str()))
+    }
+}
+
+impl miniserde::de::Deserialize for BeaconEvent {
+    fn begin(out: &mut Option<Self>) -> &mut dyn miniserde::de::Visitor {
+        impl miniserde::de::Visitor for Place<BeaconEvent> {
+            fn string(&mut self, s: &str) -> miniserde::Result<()> {
+                self.out = Some(match s {
+                    "session_open" => BeaconEvent::SessionOpen,
+                    "first_frame" => BeaconEvent::FirstFrame,
+                    "pause" => BeaconEvent::Pause,
+                    "play" => BeaconEvent::Play,
+                    "seek_start" => BeaconEvent::SeekStart,
+                    "seek_end" => BeaconEvent::SeekEnd,
+                    "rebuffer_start" => BeaconEvent::RebufferStart,
+                    "rebuffer_end" => BeaconEvent::RebufferEnd,
+                    "quality_change" => BeaconEvent::QualityChange,
+                    "error" => BeaconEvent::Error,
+                    "heartbeat" => BeaconEvent::Heartbeat,
+                    "session_end" => BeaconEvent::SessionEnd,
+                    _ => return Err(miniserde::Error),
+                });
+                Ok(())
+            }
+        }
+        Place::new(out)
+    }
+}
+
+/// A single beacon. Flat struct — optional fields are omitted from JSON when None.
+#[derive(Debug, Clone)]
 pub struct Beacon {
     pub seq: u32,
     pub play_id: String,
@@ -31,40 +82,85 @@ pub struct Beacon {
     pub event: BeaconEvent,
 
     // Present on all beacons except session_open.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<PlayerState>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub metrics: Option<Metrics>,
 
     // session_open fields.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub video: Option<VideoMetadata>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub client: Option<ClientMetadata>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub sdk: Option<SdkMetadata>,
 
     // heartbeat field.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub playhead_ms: Option<u64>,
 
     // seek fields (present on seek_start and seek_end).
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub seek_from_ms: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub seek_to_ms: Option<u64>,
 
     // quality_change field.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub quality: Option<QualityLevel>,
 
     // error field.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<PlayerError>,
 }
 
+impl miniserde::ser::Serialize for Beacon {
+    fn begin(&self) -> miniserde::ser::Fragment {
+        struct Map<'a> {
+            data: &'a Beacon,
+            state: u8,
+        }
+        impl<'a> miniserde::ser::Map for Map<'a> {
+            fn next(&mut self) -> Option<(Cow<str>, &dyn miniserde::ser::Serialize)> {
+                loop {
+                    let s = self.state;
+                    self.state += 1;
+                    match s {
+                        0 => return Some((Cow::Borrowed("seq"), &self.data.seq)),
+                        1 => return Some((Cow::Borrowed("play_id"), &self.data.play_id)),
+                        2 => return Some((Cow::Borrowed("ts"), &self.data.ts)),
+                        3 => return Some((Cow::Borrowed("event"), &self.data.event)),
+                        4 => if let Some(ref v) = self.data.state {
+                            return Some((Cow::Borrowed("state"), v));
+                        }
+                        5 => if let Some(ref v) = self.data.metrics {
+                            return Some((Cow::Borrowed("metrics"), v));
+                        }
+                        6 => if let Some(ref v) = self.data.video {
+                            return Some((Cow::Borrowed("video"), v));
+                        }
+                        7 => if let Some(ref v) = self.data.client {
+                            return Some((Cow::Borrowed("client"), v));
+                        }
+                        8 => if let Some(ref v) = self.data.sdk {
+                            return Some((Cow::Borrowed("sdk"), v));
+                        }
+                        9 => if let Some(ref v) = self.data.playhead_ms {
+                            return Some((Cow::Borrowed("playhead_ms"), v));
+                        }
+                        10 => if let Some(ref v) = self.data.seek_from_ms {
+                            return Some((Cow::Borrowed("seek_from_ms"), v));
+                        }
+                        11 => if let Some(ref v) = self.data.seek_to_ms {
+                            return Some((Cow::Borrowed("seek_to_ms"), v));
+                        }
+                        12 => if let Some(ref v) = self.data.quality {
+                            return Some((Cow::Borrowed("quality"), v));
+                        }
+                        13 => if let Some(ref v) = self.data.error {
+                            return Some((Cow::Borrowed("error"), v));
+                        }
+                        _ => return None,
+                    }
+                }
+            }
+        }
+        miniserde::ser::Fragment::Map(Box::new(Map { data: self, state: 0 }))
+    }
+}
+
 /// HTTP POST body — wraps a batch of beacons from a single play session.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, miniserde::Serialize)]
 pub struct BeaconBatch {
     pub beacons: Vec<Beacon>,
 }
@@ -74,26 +170,50 @@ impl BeaconBatch {
         BeaconBatch { beacons }
     }
 
-    pub fn to_json(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string(self)
+    pub fn to_json(&self) -> String {
+        miniserde::json::to_string(self)
     }
 }
 
 // ── Metadata types ────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, miniserde::Deserialize)]
 pub struct VideoMetadata {
     pub id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl miniserde::ser::Serialize for VideoMetadata {
+    fn begin(&self) -> miniserde::ser::Fragment {
+        struct Map<'a> {
+            data: &'a VideoMetadata,
+            state: u8,
+        }
+        impl<'a> miniserde::ser::Map for Map<'a> {
+            fn next(&mut self) -> Option<(Cow<str>, &dyn miniserde::ser::Serialize)> {
+                loop {
+                    let s = self.state;
+                    self.state += 1;
+                    match s {
+                        0 => return Some((Cow::Borrowed("id"), &self.data.id)),
+                        1 => if let Some(ref v) = self.data.title {
+                            return Some((Cow::Borrowed("title"), v));
+                        }
+                        _ => return None,
+                    }
+                }
+            }
+        }
+        miniserde::ser::Fragment::Map(Box::new(Map { data: self, state: 0 }))
+    }
+}
+
+#[derive(Debug, Clone, miniserde::Serialize, miniserde::Deserialize)]
 pub struct ClientMetadata {
     pub user_agent: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, miniserde::Serialize, miniserde::Deserialize)]
 pub struct SdkMetadata {
     pub api_version: u32,
     pub core: SdkComponent,
@@ -101,32 +221,139 @@ pub struct SdkMetadata {
     pub player: SdkComponent,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, miniserde::Serialize, miniserde::Deserialize)]
 pub struct SdkComponent {
     pub name: String,
     pub version: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct QualityLevel {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub bitrate_bps: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub width: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub height: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub framerate: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    pub framerate: Option<String>,
     pub codec: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl miniserde::ser::Serialize for QualityLevel {
+    fn begin(&self) -> miniserde::ser::Fragment {
+        struct Map<'a> {
+            data: &'a QualityLevel,
+            state: u8,
+        }
+        impl<'a> miniserde::ser::Map for Map<'a> {
+            fn next(&mut self) -> Option<(Cow<str>, &dyn miniserde::ser::Serialize)> {
+                loop {
+                    let s = self.state;
+                    self.state += 1;
+                    match s {
+                        0 => if let Some(ref v) = self.data.bitrate_bps {
+                            return Some((Cow::Borrowed("bitrate_bps"), v));
+                        }
+                        1 => if let Some(ref v) = self.data.width {
+                            return Some((Cow::Borrowed("width"), v));
+                        }
+                        2 => if let Some(ref v) = self.data.height {
+                            return Some((Cow::Borrowed("height"), v));
+                        }
+                        3 => if let Some(ref v) = self.data.framerate {
+                            return Some((Cow::Borrowed("framerate"), v));
+                        }
+                        4 => if let Some(ref v) = self.data.codec {
+                            return Some((Cow::Borrowed("codec"), v));
+                        }
+                        _ => return None,
+                    }
+                }
+            }
+        }
+        miniserde::ser::Fragment::Map(Box::new(Map { data: self, state: 0 }))
+    }
+}
+
+impl miniserde::de::Deserialize for QualityLevel {
+    fn begin(out: &mut Option<Self>) -> &mut dyn miniserde::de::Visitor {
+        impl miniserde::de::Visitor for Place<QualityLevel> {
+            fn map(&mut self) -> miniserde::Result<Box<dyn miniserde::de::Map + '_>> {
+                Ok(Box::new(QualityLevelMap {
+                    bitrate_bps: None,
+                    width: None,
+                    height: None,
+                    framerate: None,
+                    codec: None,
+                    out: &mut self.out,
+                }))
+            }
+        }
+        Place::new(out)
+    }
+}
+
+struct QualityLevelMap<'a> {
+    bitrate_bps: Option<Option<u64>>,
+    width: Option<Option<u32>>,
+    height: Option<Option<u32>>,
+    framerate: Option<Option<String>>,
+    codec: Option<Option<String>>,
+    out: &'a mut Option<QualityLevel>,
+}
+
+impl<'a> miniserde::de::Map for QualityLevelMap<'a> {
+    fn key(&mut self, k: &str) -> miniserde::Result<&mut dyn miniserde::de::Visitor> {
+        match k {
+            "bitrate_bps" => Ok(miniserde::de::Deserialize::begin(&mut self.bitrate_bps)),
+            "width" => Ok(miniserde::de::Deserialize::begin(&mut self.width)),
+            "height" => Ok(miniserde::de::Deserialize::begin(&mut self.height)),
+            "framerate" => Ok(miniserde::de::Deserialize::begin(&mut self.framerate)),
+            "codec" => Ok(miniserde::de::Deserialize::begin(&mut self.codec)),
+            _ => Ok(<dyn miniserde::de::Visitor>::ignore()),
+        }
+    }
+
+    fn finish(&mut self) -> miniserde::Result<()> {
+        *self.out = Some(QualityLevel {
+            bitrate_bps: self.bitrate_bps.take().flatten(),
+            width: self.width.take().flatten(),
+            height: self.height.take().flatten(),
+            framerate: self.framerate.take().flatten(),
+            codec: self.codec.take().flatten(),
+        });
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct PlayerError {
     pub code: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     pub fatal: bool,
+}
+
+impl miniserde::ser::Serialize for PlayerError {
+    fn begin(&self) -> miniserde::ser::Fragment {
+        struct Map<'a> {
+            data: &'a PlayerError,
+            state: u8,
+        }
+        impl<'a> miniserde::ser::Map for Map<'a> {
+            fn next(&mut self) -> Option<(Cow<str>, &dyn miniserde::ser::Serialize)> {
+                loop {
+                    let s = self.state;
+                    self.state += 1;
+                    match s {
+                        0 => return Some((Cow::Borrowed("code"), &self.data.code)),
+                        1 => if let Some(ref v) = self.data.message {
+                            return Some((Cow::Borrowed("message"), v));
+                        }
+                        2 => return Some((Cow::Borrowed("fatal"), &self.data.fatal)),
+                        _ => return None,
+                    }
+                }
+            }
+        }
+        miniserde::ser::Fragment::Map(Box::new(Map { data: self, state: 0 }))
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -155,7 +382,7 @@ mod tests {
         ];
         for (event, expected) in cases {
             assert_eq!(
-                serde_json::to_string(&event).unwrap(),
+                miniserde::json::to_string(&event),
                 expected,
                 "BeaconEvent::{:?}",
                 event
@@ -165,9 +392,9 @@ mod tests {
 
     #[test]
     fn beacon_event_deserializes_from_snake_case() {
-        let e: BeaconEvent = serde_json::from_str("\"rebuffer_start\"").unwrap();
+        let e: BeaconEvent = miniserde::json::from_str("\"rebuffer_start\"").unwrap();
         assert_eq!(e, BeaconEvent::RebufferStart);
-        let e: BeaconEvent = serde_json::from_str("\"session_open\"").unwrap();
+        let e: BeaconEvent = miniserde::json::from_str("\"session_open\"").unwrap();
         assert_eq!(e, BeaconEvent::SessionOpen);
     }
 
@@ -190,7 +417,7 @@ mod tests {
         ];
         for (state, expected) in cases {
             assert_eq!(
-                serde_json::to_string(&state).unwrap(),
+                miniserde::json::to_string(&state),
                 expected,
                 "PlayerState::{:?}",
                 state
@@ -206,8 +433,8 @@ mod tests {
             PlayerState::Rebuffering,
             PlayerState::Ended,
         ] {
-            let json = serde_json::to_string(&state).unwrap();
-            let back: PlayerState = serde_json::from_str(&json).unwrap();
+            let json = miniserde::json::to_string(&state);
+            let back: PlayerState = miniserde::json::from_str(&json).unwrap();
             assert_eq!(back, state);
         }
     }
@@ -236,7 +463,7 @@ mod tests {
     #[test]
     fn beacon_omits_all_none_fields() {
         let b = minimal_beacon(BeaconEvent::Pause);
-        let json = serde_json::to_string(&b).unwrap();
+        let json = miniserde::json::to_string(&b);
         assert!(json.contains("\"seq\":0"));
         assert!(json.contains("\"event\":\"pause\""));
         // None fields must not appear in output.
@@ -251,7 +478,7 @@ mod tests {
         let mut b = minimal_beacon(BeaconEvent::Heartbeat);
         b.state = Some(PlayerState::Playing);
         b.playhead_ms = Some(42_000);
-        let json = serde_json::to_string(&b).unwrap();
+        let json = miniserde::json::to_string(&b);
         assert!(json.contains("\"state\":\"playing\""));
         assert!(json.contains("\"playhead_ms\":42000"));
         assert!(!json.contains("seek_from_ms"));
@@ -262,7 +489,7 @@ mod tests {
         let mut b = minimal_beacon(BeaconEvent::SeekEnd);
         b.seek_from_ms = Some(10_000);
         b.seek_to_ms = Some(60_000);
-        let json = serde_json::to_string(&b).unwrap();
+        let json = miniserde::json::to_string(&b);
         assert!(json.contains("\"seek_from_ms\":10000"));
         assert!(json.contains("\"seek_to_ms\":60000"));
         assert!(!json.contains("playhead_ms"));
@@ -274,7 +501,7 @@ mod tests {
     fn beacon_batch_wraps_beacons_under_key() {
         let b = minimal_beacon(BeaconEvent::SessionOpen);
         let batch = BeaconBatch::new(vec![b]);
-        let json = batch.to_json().unwrap();
+        let json = batch.to_json();
         assert!(json.starts_with("{\"beacons\":["), "got: {}", json);
         assert!(json.ends_with("]}"), "got: {}", json);
     }
@@ -286,8 +513,8 @@ mod tests {
             minimal_beacon(BeaconEvent::FirstFrame),
         ];
         let batch = BeaconBatch::new(beacons);
-        let parsed: serde_json::Value = serde_json::from_str(&batch.to_json().unwrap()).unwrap();
-        assert_eq!(parsed["beacons"].as_array().unwrap().len(), 2);
+        let json = batch.to_json();
+        assert_eq!(json.matches("\"seq\":").count(), 2);
     }
 
     #[test]
@@ -303,16 +530,13 @@ mod tests {
             rebuffer_count: 0,
             error_count: 0,
         });
-        let batch = BeaconBatch::new(vec![b.clone()]);
-        let json = batch.to_json().unwrap();
-        let back: BeaconBatch = serde_json::from_str(&json).unwrap();
-        let rb = &back.beacons[0];
-        assert_eq!(rb.event, BeaconEvent::Heartbeat);
-        assert_eq!(rb.state, Some(PlayerState::Playing));
-        assert_eq!(rb.playhead_ms, Some(5000));
-        let m = rb.metrics.as_ref().unwrap();
-        assert_eq!(m.vst_ms, Some(1000));
-        assert_eq!(m.played_ms, 4000);
+        let batch = BeaconBatch::new(vec![b]);
+        let json = batch.to_json();
+        assert!(json.contains("\"event\":\"heartbeat\""));
+        assert!(json.contains("\"state\":\"playing\""));
+        assert!(json.contains("\"playhead_ms\":5000"));
+        assert!(json.contains("\"vst_ms\":1000"));
+        assert!(json.contains("\"played_ms\":4000"));
     }
 
     // ── Metadata types ───────────────────────────────────────────────────────
@@ -320,13 +544,13 @@ mod tests {
     #[test]
     fn video_metadata_omits_title_when_none() {
         let v = VideoMetadata { id: "vid-1".to_string(), title: None };
-        assert_eq!(serde_json::to_string(&v).unwrap(), "{\"id\":\"vid-1\"}");
+        assert_eq!(miniserde::json::to_string(&v), "{\"id\":\"vid-1\"}");
     }
 
     #[test]
     fn video_metadata_includes_title_when_present() {
         let v = VideoMetadata { id: "vid-1".to_string(), title: Some("My Video".to_string()) };
-        let json = serde_json::to_string(&v).unwrap();
+        let json = miniserde::json::to_string(&v);
         assert!(json.contains("\"title\":\"My Video\""));
     }
 
@@ -339,7 +563,7 @@ mod tests {
             framerate: None,
             codec: Some("avc1.4d401f".to_string()),
         };
-        let json = serde_json::to_string(&q).unwrap();
+        let json = miniserde::json::to_string(&q);
         assert!(json.contains("\"bitrate_bps\":2500000"));
         assert!(json.contains("\"codec\":\"avc1.4d401f\""));
         assert!(!json.contains("width"));
@@ -353,19 +577,19 @@ mod tests {
             bitrate_bps: Some(2_500_000),
             width: Some(1280),
             height: Some(720),
-            framerate: Some(29.97),
+            framerate: Some("29.97".to_string()),
             codec: Some("avc1.4d401f".to_string()),
         };
-        let json = serde_json::to_string(&q).unwrap();
+        let json = miniserde::json::to_string(&q);
         assert!(json.contains("\"width\":1280"));
         assert!(json.contains("\"height\":720"));
-        assert!(json.contains("\"framerate\":29.97"));
+        assert!(json.contains("\"framerate\":\"29.97\""));
     }
 
     #[test]
     fn player_error_omits_message_when_none() {
         let e = PlayerError { code: "ERR_NET".to_string(), message: None, fatal: false };
-        let json = serde_json::to_string(&e).unwrap();
+        let json = miniserde::json::to_string(&e);
         assert!(json.contains("\"code\":\"ERR_NET\""));
         assert!(json.contains("\"fatal\":false"));
         assert!(!json.contains("message"));
@@ -378,7 +602,7 @@ mod tests {
             message: Some("timeout".to_string()),
             fatal: true,
         };
-        let json = serde_json::to_string(&e).unwrap();
+        let json = miniserde::json::to_string(&e);
         assert!(json.contains("\"message\":\"timeout\""));
         assert!(json.contains("\"fatal\":true"));
     }
@@ -388,7 +612,7 @@ mod tests {
     #[test]
     fn metrics_serializes_null_vst_as_json_null() {
         let m = Metrics::new();
-        let json = serde_json::to_string(&m).unwrap();
+        let json = miniserde::json::to_string(&m);
         assert!(json.contains("\"vst_ms\":null"), "got: {}", json);
         assert!(json.contains("\"played_ms\":0"));
         assert!(json.contains("\"rebuffer_count\":0"));
@@ -404,8 +628,8 @@ mod tests {
             rebuffer_count: 1,
             error_count: 0,
         };
-        let json = serde_json::to_string(&m).unwrap();
-        let back: Metrics = serde_json::from_str(&json).unwrap();
+        let json = miniserde::json::to_string(&m);
+        let back: Metrics = miniserde::json::from_str(&json).unwrap();
         assert_eq!(m, back);
     }
 }

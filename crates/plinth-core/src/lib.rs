@@ -11,6 +11,9 @@ pub mod wasm;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod ffi;
 
+#[cfg(target_os = "android")]
+mod jni;
+
 // Convenient re-exports for the most common public types.
 pub use beacon::{
     Beacon, BeaconBatch, BeaconEvent, ClientMetadata, PlayerError, QualityLevel, SdkComponent,
