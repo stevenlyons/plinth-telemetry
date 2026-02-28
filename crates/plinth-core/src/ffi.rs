@@ -12,6 +12,7 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
+use crate::beacon::BeaconBatch;
 use crate::config::Config;
 use crate::event::PlayerEvent;
 use crate::session::{Session, SessionMeta};
@@ -38,8 +39,7 @@ fn into_c_string(s: String) -> *mut c_char {
 
 /// Serialize a `Vec<Beacon>` into a JSON beacon-batch string.
 fn beacons_to_json(beacons: Vec<crate::beacon::Beacon>) -> String {
-    let batch = crate::beacon::BeaconBatch { beacons };
-    serde_json::to_string(&batch).unwrap_or_else(|_| r#"{"beacons":[]}"#.to_string())
+    miniserde::json::to_string(&BeaconBatch::new(beacons))
 }
 
 // ── Public C API ──────────────────────────────────────────────────────────────
@@ -64,13 +64,13 @@ pub unsafe extern "C" fn plinth_session_new(
     let config: Config = if config_json.is_null() {
         Config::default()
     } else {
-        match cstr_to_str(config_json).and_then(|s| serde_json::from_str(s).ok()) {
+        match cstr_to_str(config_json).and_then(|s| miniserde::json::from_str(s).ok()) {
             Some(c) => c,
             None => return std::ptr::null_mut(),
         }
     };
 
-    let meta: SessionMeta = match cstr_to_str(meta_json).and_then(|s| serde_json::from_str(s).ok()) {
+    let meta: SessionMeta = match cstr_to_str(meta_json).and_then(|s| miniserde::json::from_str(s).ok()) {
         Some(m) => m,
         None => return std::ptr::null_mut(),
     };
@@ -97,7 +97,7 @@ pub unsafe extern "C" fn plinth_session_process_event(
         return into_c_string(r#"{"beacons":[]}"#.to_string());
     }
 
-    let event: PlayerEvent = match cstr_to_str(event_json).and_then(|s| serde_json::from_str(s).ok()) {
+    let event: PlayerEvent = match cstr_to_str(event_json).and_then(|s| miniserde::json::from_str(s).ok()) {
         Some(e) => e,
         None => return into_c_string(r#"{"beacons":[]}"#.to_string()),
     };

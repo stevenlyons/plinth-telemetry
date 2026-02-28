@@ -59,7 +59,7 @@ export interface QualityLevel {
   bitrate_bps?: number;
   width?: number;
   height?: number;
-  framerate?: number;
+  framerate?: string;
   codec?: string;
 }
 

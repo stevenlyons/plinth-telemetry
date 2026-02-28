@@ -100,6 +100,48 @@ A proof-of-concept SDK framework for measuring Video Quality of Experience acros
 - [x] Document beacon payload schema
 - [x] Document how to add a new player integration
 
+### Phase 8 — Android Platform Framework & Media3 Integration
+
+#### Rust core (JNI bridge)
+
+- [x] Add `jni = "0.21"` dependency gated on `cfg(target_os = "android")` to `crates/plinth-core/Cargo.toml`
+- [x] Implement `crates/plinth-core/src/jni.rs` — 5 `extern "system"` JNI exports matching `io.plinth.android.PlinthCoreJni`
+- [x] Register `mod jni` in `crates/plinth-core/src/lib.rs` behind `#[cfg(target_os = "android")]`
+
+#### Gradle build system
+
+- [x] Create root `settings.gradle.kts` — includes `:plinth-android`, `:plinth-media3`, `:android-sample:app`
+- [x] Create root `build.gradle.kts` — declares AGP, kotlin-android, kotlin-serialization plugins with `apply false`
+- [x] Create `gradle/libs.versions.toml` — version catalog (AGP 8.3.2, Kotlin 1.9.24, Media3 1.3.1, OkHttp, serialization, coroutines, JUnit, Truth, Mockito)
+- [x] Create `gradle/wrapper/gradle-wrapper.properties` — pins Gradle 8.7
+- [x] Create `scripts/setup-android.sh` — one-time bootstrap (Gradle wrapper, Rust Android targets, cargo-ndk)
+
+#### `plinth-android` (Layer 2)
+
+- [x] `packages/plinth-android/build.gradle.kts`
+- [x] `CoreJni.kt` — internal interface abstracting the JNI boundary (enables test injection)
+- [x] `PlinthCoreJni.kt` — internal object implementing `CoreJni` via `external override fun`; loads `libplinth_core.so`
+- [x] `PlinthConfig.kt` — `@Serializable data class` with `endpoint`, `project_key`, `heartbeat_interval_ms`
+- [x] `SessionMeta.kt` — `SessionMeta`, `VideoMetadata`, `ClientMetadata`, `SdkMetadata`, `SdkComponent`
+- [x] `Beacon.kt` — `BeaconBatch`, `Beacon`, `Metrics`, `QualityLevel`, `PlayerError`
+- [x] `PlinthSession.kt` — Layer 2 public API; owns JNI pointer, single-threaded dispatcher, heartbeat coroutine, OkHttp poster; `createInternal` seam for tests
+- [x] `PlinthSessionTest.kt` — 18 JVM unit tests with `FakeCoreJni` (no native library required)
+
+#### `plinth-media3` (Layer 3)
+
+- [x] `packages/plinth-media3/build.gradle.kts`
+- [x] `Media3VideoMeta.kt` — `data class(id, title?)`
+- [x] `Media3Options.kt` — `data class(config, sessionFactory?)` test seam
+- [x] `PlinthMedia3.kt` — `Player.Listener` implementation; sealed `PlayerEventDto` for type-safe event serialization; playhead tracking coroutine; `initializeInternal` + `eventSink` test seams
+- [x] `PlinthMedia3Test.kt` — 28 JVM unit tests; Mockito mocks `Player`; `eventSink` captures event JSON strings without native library
+
+#### `android-sample` app
+
+- [x] `apps/android-sample/app/build.gradle.kts`
+- [x] `apps/android-sample/app/src/main/AndroidManifest.xml`
+- [x] `apps/android-sample/app/src/main/res/layout/activity_main.xml` — landscape split: `StyledPlayerView` + beacon log panel
+- [x] `apps/android-sample/app/src/main/java/io/plinth/sample/MainActivity.kt` — loads Mux HLS test stream; colour-coded scrolling beacon log mirroring the macOS demo
+
 ---
 
 ## Implementation Plan
@@ -140,3 +182,11 @@ plinth-core (Rust)
 
 - `docs/prd.md` — product requirements
 - `TASKS.md` — this file
+- `crates/plinth-core/src/jni.rs` — Android JNI bridge
+- `packages/plinth-android/` — Layer 2: Kotlin session wrapper, JNI interface, serialization types
+- `packages/plinth-media3/` — Layer 3: Media3 `Player.Listener` integration
+- `apps/android-sample/` — sample app with `StyledPlayerView` + beacon log overlay
+- `gradle/libs.versions.toml` — Gradle version catalog
+- `settings.gradle.kts` — Android module includes
+- `scripts/setup-android.sh` — one-time Android toolchain bootstrap
+- `docs/tdd/android-media3.md` — technical design document for Phase 8

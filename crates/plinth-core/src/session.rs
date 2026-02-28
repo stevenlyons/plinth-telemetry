@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::beacon::{
@@ -11,7 +10,7 @@ use crate::state::PlayerState;
 
 // ── Session metadata ──────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, miniserde::Deserialize)]
 pub struct SessionMeta {
     pub video: VideoMetadata,
     pub client: ClientMetadata,
@@ -915,7 +914,7 @@ mod tests {
             bitrate_bps: Some(2_500_000),
             width: Some(1280),
             height: Some(720),
-            framerate: Some(29.97),
+            framerate: Some("29.97".to_string()),
             codec: Some("avc1.4d401f".to_string()),
         };
         let beacons = s.process_event(PlayerEvent::QualityChange { quality }, 2000);
@@ -1060,7 +1059,7 @@ mod tests {
         s.process_event(PlayerEvent::CanPlay, 0);
         let beacons = s.process_event(PlayerEvent::Play, 1_708_646_400_000);
         let b = &beacons[0];
-        let json = serde_json::to_string(b).unwrap();
+        let json = miniserde::json::to_string(b);
         assert!(!json.contains("\"state\""));
         assert!(!json.contains("\"metrics\""));
         assert!(json.contains("\"event\":\"session_open\""));
@@ -1077,7 +1076,7 @@ mod tests {
         s.process_event(PlayerEvent::Play, 1_708_646_400_000);
         let beacons = s.process_event(PlayerEvent::FirstFrame, 1_708_646_401_280);
         let b = &beacons[0];
-        let json = serde_json::to_string(b).unwrap();
+        let json = miniserde::json::to_string(b);
         // Should have state and metrics but NOT video/client/sdk
         assert!(json.contains("\"state\":\"playing\""));
         assert!(json.contains("\"vst_ms\":1280"));
@@ -1091,7 +1090,7 @@ mod tests {
         reach_playing(&mut s, 0);
         s.set_playhead(10_000);
         let beacons = s.tick(10_000);
-        let json = serde_json::to_string(&beacons[0]).unwrap();
+        let json = miniserde::json::to_string(&beacons[0]);
         assert!(json.contains("\"playhead_ms\":10000"));
         assert!(!json.contains("\"seek_from_ms\""));
     }
@@ -1101,7 +1100,7 @@ mod tests {
         let mut s = make_session();
         reach_playing(&mut s, 0);
         let beacons = s.process_event(PlayerEvent::SeekStart { from_ms: 5000 }, 6000);
-        let json = serde_json::to_string(&beacons[0]).unwrap();
+        let json = miniserde::json::to_string(&beacons[0]);
         assert!(!json.contains("\"playhead_ms\""));
         assert!(json.contains("\"seek_from_ms\":5000"));
     }
@@ -1490,7 +1489,7 @@ mod tests {
         s.process_event(PlayerEvent::Load { src: "x".into() }, 0);
         s.process_event(PlayerEvent::CanPlay, 0);
         let beacons = s.process_event(PlayerEvent::Play, 0);
-        let json = serde_json::to_string(&beacons[0]).unwrap();
+        let json = miniserde::json::to_string(&beacons[0]);
         assert!(json.contains("\"api_version\":1"));
         assert!(json.contains("plinth-core"));
         assert!(json.contains("plinth-js"));

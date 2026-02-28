@@ -1,7 +1,5 @@
-use serde::{Deserialize, Serialize};
-
 /// Cumulative QoE metrics snapshot. All durations are in milliseconds.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, miniserde::Serialize, miniserde::Deserialize)]
 pub struct Metrics {
     /// Video Start Time: ms from play_attempt to first_frame. Null until first_frame.
     pub vst_ms: Option<u64>,

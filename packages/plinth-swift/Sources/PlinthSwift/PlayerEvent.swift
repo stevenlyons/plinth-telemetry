@@ -73,14 +73,14 @@ public struct QualityLevel: Codable {
     public var bitrateBps: Int?
     public var width: Int?
     public var height: Int?
-    public var framerate: Double?
+    public var framerate: String?
     public var codec: String?
 
     public init(
         bitrateBps: Int? = nil,
         width: Int? = nil,
         height: Int? = nil,
-        framerate: Double? = nil,
+        framerate: String? = nil,
         codec: String? = nil
     ) {
         self.bitrateBps = bitrateBps

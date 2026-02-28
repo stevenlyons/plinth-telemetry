@@ -1,6 +1,4 @@
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, miniserde::Deserialize)]
 pub struct Config {
     pub endpoint: String,
     pub project_key: String,
