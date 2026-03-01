@@ -9,7 +9,6 @@ Add Android platform support to plinth-video by implementing two new layers foll
 
 This mirrors the Swift/AVPlayer implementation (`plinth-swift` + `plinth-avplayer`) and brings the same QoE measurement capability to Android applications using [Jetpack Media3](https://developer.android.com/media/media3) (the successor to ExoPlayer).
 
----
 
 ## Goals
 

@@ -6,7 +6,6 @@ Add a [Shaka Player](https://github.com/shaka-project/shaka-player) integration 
 
 This integration follows the same three-layer architecture and mirrors the `plinth-hlsjs` implementation as closely as Shaka's API allows.
 
----
 
 ## Goals
 
