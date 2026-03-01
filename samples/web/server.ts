@@ -67,17 +67,25 @@ Bun.serve({
       return new Response("OK", { status: 200, headers: CORS_HEADERS });
     }
 
-    // Serve shaka.html for /shaka
-    if (req.method === "GET" && url.pathname === "/shaka") {
-      const file = Bun.file(join(import.meta.dir, "shaka.html"));
+    // Serve home.html for root
+    if (req.method === "GET" && url.pathname === "/") {
+      const file = Bun.file(join(import.meta.dir, "home.html"));
       return new Response(file, {
         headers: { "Content-Type": "text/html", ...CORS_HEADERS },
       });
     }
 
-    // Serve index.html for root
-    if (req.method === "GET" && url.pathname === "/") {
+    // Serve index.html for /hlsjs
+    if (req.method === "GET" && url.pathname === "/hlsjs") {
       const file = Bun.file(join(import.meta.dir, "index.html"));
+      return new Response(file, {
+        headers: { "Content-Type": "text/html", ...CORS_HEADERS },
+      });
+    }
+
+    // Serve shaka.html for /shaka
+    if (req.method === "GET" && url.pathname === "/shaka") {
+      const file = Bun.file(join(import.meta.dir, "shaka.html"));
       return new Response(file, {
         headers: { "Content-Type": "text/html", ...CORS_HEADERS },
       });
