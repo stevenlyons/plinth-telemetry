@@ -63,6 +63,7 @@ export class PlinthDashjs {
   private video: HTMLVideoElement;
   private lastPlayheadMs = 0;
   private hasFiredFirstFrame = false;
+  private lastQualityBandwidth: number | null = null;
   private destroyed = false;
   private playerHandlers = new Map<string, (e?: unknown) => void>();
   private videoHandlers = new Map<string, EventListener>();
@@ -123,6 +124,7 @@ export class PlinthDashjs {
   private attachPlayerListeners(): void {
     const onManifestLoadingStarted = () => {
       this.hasFiredFirstFrame = false;
+      this.lastQualityBandwidth = null;
       this.emit({ type: "load", src: this.player.getSource() ?? "" });
     };
     this.player.on(DashjsEvents.MANIFEST_LOADING_STARTED, onManifestLoadingStarted);
@@ -158,6 +160,8 @@ export class PlinthDashjs {
     const onQualityChangeRendered = () => {
       const rep = this.player.getCurrentRepresentationForType("video");
       if (!rep) return;
+      if (rep.bandwidth === this.lastQualityBandwidth) return;
+      this.lastQualityBandwidth = rep.bandwidth;
       this.emit({
         type: "quality_change",
         quality: {

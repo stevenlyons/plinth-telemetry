@@ -7,7 +7,7 @@ import type { PlinthSession } from "@plinth/js";
 class FakePlayer {
   private listeners = new Map<string, Array<(e?: unknown) => void>>();
   private _source = "https://example.com/manifest.mpd";
-  private _representation = {
+  _representation = {
     bandwidth: 2_500_000,
     width: 1280,
     height: 720,
@@ -265,6 +265,34 @@ describe("PlinthDashjs", () => {
   });
 
   // 16
+  it("QUALITY_CHANGE_RENDERED with same bandwidth → quality_change emitted only once", async () => {
+    instance = await setup(player, video, mockSession);
+    player.fire("qualityChangeRendered");
+    player.fire("qualityChangeRendered"); // same representation — no change
+
+    const qualityCalls = (mockSession.processEvent.mock.calls as unknown[][]).filter(
+      (c) => (c[0] as any).type === "quality_change",
+    );
+    expect(qualityCalls).toHaveLength(1);
+  });
+
+  // 17
+  it("QUALITY_CHANGE_RENDERED with different bandwidth → quality_change emitted each time", async () => {
+    instance = await setup(player, video, mockSession);
+    player.fire("qualityChangeRendered"); // bandwidth 2_500_000
+
+    // swap to a lower rendition
+    player._representation = { bandwidth: 800_000, width: 640, height: 360, frameRate: 29.97, codecs: "avc1.4d401f" };
+    player.fire("qualityChangeRendered");
+
+    const qualityCalls = (mockSession.processEvent.mock.calls as unknown[][]).filter(
+      (c) => (c[0] as any).type === "quality_change",
+    );
+    expect(qualityCalls).toHaveLength(2);
+    expect((qualityCalls[1][0] as any).quality.bitrate_bps).toBe(800_000);
+  });
+
+  // 18
   it("ERROR event → processEvent({ type:'error', fatal: true })", async () => {
     instance = await setup(player, video, mockSession);
     player.fire("error", { code: 34, message: "manifest error" });
