@@ -1586,4 +1586,76 @@ mod tests {
         let json = miniserde::json::to_string(&beacons[0]);
         assert!(json.contains("\"playhead_ms\":45000"));
     }
+
+    // ── Beacon lifecycle integration ──────────────────────────────────────────
+
+    /// Drive a full session lifecycle and verify seq values are monotonically
+    /// increasing, all beacons share the same play_id, and event types are correct.
+    #[test]
+    fn full_session_lifecycle_seq_order() {
+        let mut s = make_session();
+        let mut all: Vec<Beacon> = Vec::new();
+
+        // Load → CanPlay → Play (session_open)
+        all.extend(s.process_event(PlayerEvent::Load { src: "http://example.com/v.m3u8".into() }, 0));
+        all.extend(s.process_event(PlayerEvent::CanPlay, 100));
+        all.extend(s.process_event(PlayerEvent::Play, 200));
+        // session_open: seq=0, no state, no metrics
+        assert_eq!(all[0].event, BeaconEvent::SessionOpen);
+        assert_eq!(all[0].seq, 0);
+        assert!(all[0].state.is_none());
+        assert!(all[0].metrics.is_none());
+
+        let play_id = all[0].play_id.clone();
+
+        // FirstFrame → Playing (first_frame, seq=1)
+        all.extend(s.process_event(PlayerEvent::FirstFrame, 1_200));
+        // Pause → Paused (pause, seq=2)
+        all.extend(s.process_event(PlayerEvent::Pause, 5_000));
+        // Resume → PlayAttempt (play, seq=3)
+        all.extend(s.process_event(PlayerEvent::Play, 8_000));
+        // CanPlayThrough → Playing (no beacon — resume, not first_frame)
+        all.extend(s.process_event(PlayerEvent::CanPlayThrough, 8_100));
+        // SeekStart (seek_start, seq=4)
+        all.extend(s.process_event(PlayerEvent::SeekStart { from_ms: 10_000 }, 11_000));
+        // SeekEnd buffer_ready → Playing (seek_end, seq=5)
+        all.extend(s.process_event(PlayerEvent::SeekEnd { to_ms: 60_000, buffer_ready: true }, 11_400));
+        // Ended → session_end (seq=6)
+        all.extend(s.process_event(PlayerEvent::Ended, 120_000));
+
+        // Verify monotonically increasing seq
+        let seqs: Vec<u32> = all.iter().map(|b| b.seq).collect();
+        for w in seqs.windows(2) {
+            assert!(w[1] == w[0] + 1, "seq not monotonic: {:?}", seqs);
+        }
+
+        // All beacons share the same play_id
+        for b in &all {
+            assert_eq!(b.play_id, play_id, "beacon seq={} has wrong play_id", b.seq);
+        }
+
+        // All beacons except session_open have state and metrics
+        for b in all.iter().skip(1) {
+            assert!(b.state.is_some(), "seq={} missing state", b.seq);
+            assert!(b.metrics.is_some(), "seq={} missing metrics", b.seq);
+        }
+    }
+
+    /// session_open has video/client/sdk but no state, metrics, or playhead_ms.
+    #[test]
+    fn session_open_beacon_has_required_metadata_fields() {
+        let mut s = make_session();
+        s.process_event(PlayerEvent::Load { src: "x".into() }, 0);
+        s.process_event(PlayerEvent::CanPlay, 0);
+        let beacons = s.process_event(PlayerEvent::Play, 0);
+        let b = &beacons[0];
+
+        assert_eq!(b.event, BeaconEvent::SessionOpen);
+        assert!(b.video.is_some(), "video must be present");
+        assert!(b.client.is_some(), "client must be present");
+        assert!(b.sdk.is_some(), "sdk must be present");
+        assert!(b.state.is_none(), "state must be absent on session_open");
+        assert!(b.metrics.is_none(), "metrics must be absent on session_open");
+        assert!(b.playhead_ms.is_none(), "playhead_ms must be absent on session_open");
+    }
 }

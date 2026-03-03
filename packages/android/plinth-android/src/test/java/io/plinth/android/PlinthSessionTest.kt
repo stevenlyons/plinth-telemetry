@@ -2,6 +2,7 @@ package io.plinth.android
 
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -328,6 +329,61 @@ class PlinthSessionTest {
         assertThat(b.event).isEqualTo("session_open")
         assertThat(b.metrics).isNull()
         assertThat(b.video!!.id).isEqualTo("v1")
+    }
+
+    // ── Concurrency ───────────────────────────────────────────────────────────
+
+    @Test fun `50 concurrent processEvent calls are all dispatched to jni`() = runTest {
+        val fake = FakeCoreJni()
+        val session = makeSession(fake)
+
+        repeat(50) {
+            session.processEvent("""{"type":"load","src":"https://example.com/v.m3u8"}""")
+        }
+        advanceUntilIdle()
+
+        assertThat(fake.processEventCalls).hasSize(50)
+    }
+
+    @Test fun `interleaved processEvent and setPlayhead calls do not crash`() = runTest {
+        val fake = FakeCoreJni()
+        val session = makeSession(fake)
+
+        repeat(25) { i ->
+            session.processEvent("""{"type":"load","src":"https://example.com/$i.m3u8"}""")
+            session.setPlayhead(i.toLong() * 1_000L)
+        }
+        advanceUntilIdle()
+
+        assertThat(fake.processEventCalls).hasSize(25)
+        assertThat(fake.setPlayheadCalls).hasSize(25)
+    }
+
+    @Test fun `processEvent calls after destroy are silently dropped`() = runTest {
+        val fake = FakeCoreJni()
+        val session = makeSession(fake)
+
+        repeat(5) { session.processEvent("""{"type":"play"}""") }
+        advanceUntilIdle()
+        val countBeforeDestroy = fake.processEventCalls.size
+
+        session.destroy()
+        advanceUntilIdle()
+
+        repeat(5) { session.processEvent("""{"type":"play"}""") }
+        advanceUntilIdle()
+
+        assertThat(fake.processEventCalls).hasSize(countBeforeDestroy)
+    }
+
+    @Test fun `rapid destroy called from multiple coroutines is idempotent`() = runTest {
+        val fake = FakeCoreJni()
+        val session = makeSession(fake)
+
+        repeat(10) { launch { session.destroy() } }
+        advanceUntilIdle()
+
+        assertThat(fake.destroyCallCount).isEqualTo(1)
     }
 
     @Test fun `Beacon with seek fields deserializes seek_from_ms and seek_to_ms`() {

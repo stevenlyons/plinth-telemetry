@@ -305,4 +305,56 @@ describe("PlinthHlsJs", () => {
 
     expect(mockSession.destroy).toHaveBeenCalledTimes(1);
   });
+
+  // 20. seeked: currentTime falls in first of multiple ranges → buffer_ready: true
+  it("seeked with multiple ranges — currentTime in first range → buffer_ready: true", async () => {
+    instance = await setup(hls, video, mockSession);
+    video.currentTime = 3.0;
+    // Two ranges: [0–5] and [10–20]
+    video.buffered = {
+      length: 2,
+      start: (i: number) => [0, 10][i],
+      end: (i: number) => [5, 20][i],
+    } as unknown as TimeRanges;
+    video.fire("seeked");
+
+    expect(mockSession.processEvent).toHaveBeenCalledWith({
+      type: "seek_end",
+      to_ms: 3_000,
+      buffer_ready: true,
+    });
+  });
+
+  // 21. seeked: currentTime falls in gap between ranges → buffer_ready: false
+  it("seeked with multiple ranges — currentTime in gap → buffer_ready: false", async () => {
+    instance = await setup(hls, video, mockSession);
+    video.currentTime = 7.0;
+    // Two ranges: [0–5] and [10–20]; currentTime=7 is in the gap
+    video.buffered = {
+      length: 2,
+      start: (i: number) => [0, 10][i],
+      end: (i: number) => [5, 20][i],
+    } as unknown as TimeRanges;
+    video.fire("seeked");
+
+    expect(mockSession.processEvent).toHaveBeenCalledWith({
+      type: "seek_end",
+      to_ms: 7_000,
+      buffer_ready: false,
+    });
+  });
+
+  // 22. seeked: buffered is empty (length 0) → buffer_ready: false
+  it("seeked with empty buffered (length 0) → buffer_ready: false", async () => {
+    instance = await setup(hls, video, mockSession);
+    video.currentTime = 5.0;
+    // FakeVideo.buffered defaults to length: 0
+    video.fire("seeked");
+
+    expect(mockSession.processEvent).toHaveBeenCalledWith({
+      type: "seek_end",
+      to_ms: 5_000,
+      buffer_ready: false,
+    });
+  });
 });
