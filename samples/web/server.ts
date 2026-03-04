@@ -5,7 +5,7 @@ const distDir = join(import.meta.dir, "dist");
 // Build all client bundles on startup
 const [hlsBuildResult, shakaBuildResult, dashjsBuildResult] = await Promise.all([
   Bun.build({
-    entrypoints: [join(import.meta.dir, "main.ts")],
+    entrypoints: [join(import.meta.dir, "hlsjs-main.ts")],
     outdir: distDir,
     target: "browser",
     minify: true,
@@ -92,7 +92,7 @@ Bun.serve({
 
     // Serve index.html for /hlsjs
     if (req.method === "GET" && url.pathname === "/hlsjs") {
-      const file = Bun.file(join(import.meta.dir, "index.html"));
+      const file = Bun.file(join(import.meta.dir, "hlsjs.html"));
       return new Response(file, {
         headers: { "Content-Type": "text/html", ...CORS_HEADERS },
       });
