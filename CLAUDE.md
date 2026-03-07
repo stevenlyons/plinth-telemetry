@@ -8,12 +8,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Process
 
-New features will have a Product Requirements Document (PRD) added to the docs/prd directory. The PRD will list the high-level requirements, goals, and experience expectations of the feature. From the information in the PRD, create a matching Technical Design Document (TDD) that includes architecture, technical information, data types, build commands, and other information. The TDD documents should be put in the docs/tdd directory and named the same as the source PRD document. 
+New features will have a Product Requirements Document (PRD) added to the docs/prd directory. The PRD will list the high-level requirements, goals, and experience expectations of the feature. From the information in the PRD, create a matching Technical Design Document (TDD) that includes architecture, technical information, data types, build commands, and other information. The TDD documents should be put in the docs/tdd directory and named the same as the source PRD document. If there are open questions from processing the PRD, ask the user.
 
-When implementing a TDD, use a worktree and create a git branch using the name of the feature. If there are open questions from processing the PRD, ask the user.
+When implementing a TDD, create a git branch using the name of the feature. 
 
 Keep track of the TDDs that are implemented in file called FEATURES.md. Add a checkbox for each TDD when it is created. When the TDD is implemented, check the checkbox.  
 
+If changes are made that impact functionality listed in this file, update the file.
 
 ## Architecture
 
