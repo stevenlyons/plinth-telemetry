@@ -1,9 +1,32 @@
 {
   "name": "@wirevice/plinth-js",
   "version": "0.1.0",
+  "description": "WebAssembly-powered Video telemetry SDK for the web — tracks playback metrics (VST, rebuffer time, played time) and reports beacons via HTTP",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "wasm"
+  ],
+  "keywords": [
+    "video",
+    "qoe",
+    "telemetry",
+    "analytics",
+    "playback",
+    "metrics",
+    "wasm",
+    "webassembly"
+  ],
   "scripts": {
+    "build": "tsc -p tsconfig.json",
     "build:wasm": "wasm-pack build ../../../crates/plinth-core --target web --out-dir ./wasm",
     "test": "node --test --import tsx/esm tests/*.test.ts"
   },
