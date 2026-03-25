@@ -28,6 +28,10 @@ async function loggingSessionFactory(
 let currentPlayer: ReturnType<ReturnType<typeof MediaPlayer>["create"]> | null = null;
 let currentInstance: PlinthDashjs | null = null;
 
+document.getElementById("url-input")!.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") document.getElementById("load-btn")!.click();
+});
+
 document.getElementById("load-btn")!.addEventListener("click", async () => {
   currentInstance?.destroy();
   currentInstance = null;
