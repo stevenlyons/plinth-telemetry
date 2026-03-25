@@ -1,9 +1,33 @@
 {
   "name": "@wirevice/plinth-dashjs",
   "version": "0.1.0",
+  "description": "Plinth Video telemetry integration for dash.js — automatically tracks playback events and reports metrics beacons",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "video",
+    "qoe",
+    "telemetry",
+    "analytics",
+    "playback",
+    "metrics",
+    "dash",
+    "dashjs",
+    "dash.js",
+    "mpeg-dash"
+  ],
   "scripts": {
+    "build": "tsc -p tsconfig.json",
     "test": "node --test --import tsx/esm tests/*.test.ts"
   },
   "dependencies": {
