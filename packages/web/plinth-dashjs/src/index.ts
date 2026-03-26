@@ -49,12 +49,10 @@ function isBufferReady(video: HTMLVideoElement): boolean {
 }
 
 // MPEG-DASH frameRate can be a fraction string like "30000/1001"
-function parseFrameRate(fr: number | string | null | undefined): number | undefined {
+function parseFrameRate(fr: number | string | null | undefined): string | undefined {
   if (fr == null) return undefined;
-  if (typeof fr === "number") return fr;
-  const parts = fr.split("/");
-  if (parts.length === 2) return Number(parts[0]) / Number(parts[1]);
-  return parseFloat(fr) || undefined;
+  if (typeof fr === "number") return String(fr);
+  return fr || undefined;
 }
 
 export class PlinthDashjs {
