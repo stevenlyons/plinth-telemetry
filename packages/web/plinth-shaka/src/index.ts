@@ -123,7 +123,7 @@ export class PlinthShaka {
           bitrate_bps: track.bandwidth,
           width: track.width ?? undefined,
           height: track.height ?? undefined,
-          framerate: track.frameRate ?? undefined,
+          framerate: track.frameRate != null ? String(track.frameRate) : undefined,
           codec: track.videoCodec ?? undefined,
         },
       });
