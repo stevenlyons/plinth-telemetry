@@ -156,18 +156,18 @@ pnpm -r run build
 All web packages are versioned together. Bump each one to the same version:
 
 ```bash
-cd packages/web/plinth-js    && pnpm version <patch|minor|major> --no-git-tag-version && cd ../../..
-cd packages/web/plinth-hlsjs && pnpm version <patch|minor|major> --no-git-tag-version && cd ../../..
-cd packages/web/plinth-shaka && pnpm version <patch|minor|major> --no-git-tag-version && cd ../../..
-cd packages/web/plinth-dashjs && pnpm version <patch|minor|major> --no-git-tag-version && cd ../../..
+cd packages/web/plinth-js && pnpm version <patch|minor|major> && cd ../../..
+cd packages/web/plinth-hlsjs && pnpm version <patch|minor|major> && cd ../../..
+cd packages/web/plinth-shaka && pnpm version <patch|minor|major> && cd ../../..
+cd packages/web/plinth-dashjs && pnpm version <patch|minor|major> && cd ../../..
 ```
 
-`--no-git-tag-version` skips the automatic commit and tag — commit the version bumps manually as part of your release commit.
+Use `--no-git-tag-version` to skip the automatic commit and tag — commit the version bumps manually as part of your release commit.
 
 ### 4. Verify package contents (dry run)
 
 ```bash
-cd packages/web/plinth-js    && npm pack --dry-run && cd ../../..
+cd packages/web/plinth-js && npm pack --dry-run && cd ../../..
 cd packages/web/plinth-hlsjs && npm pack --dry-run && cd ../../..
 cd packages/web/plinth-shaka && npm pack --dry-run && cd ../../..
 cd packages/web/plinth-dashjs && npm pack --dry-run && cd ../../..
@@ -182,7 +182,7 @@ Use `pnpm publish` — **not** `npm publish`. pnpm replaces the `workspace:*` de
 Publish `plinth-js` first since the others depend on it:
 
 ```bash
-cd packages/web/plinth-js    && pnpm publish --no-git-checks && cd ../../..
+cd packages/web/plinth-js && pnpm publish --no-git-checks && cd ../../..
 cd packages/web/plinth-hlsjs && pnpm publish --no-git-checks && cd ../../..
 cd packages/web/plinth-shaka && pnpm publish --no-git-checks && cd ../../..
 cd packages/web/plinth-dashjs && pnpm publish --no-git-checks && cd ../../..
