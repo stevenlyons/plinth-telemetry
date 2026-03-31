@@ -537,6 +537,48 @@ impl Session {
                 self.state = PlayerState::Idle;
             }
 
+            // ── Error from pre-session states ─────────────────────────────────
+            (PlayerState::Idle, PlayerEvent::Error { code, message, fatal }) => {
+                self.state = PlayerState::Error;
+                self.error_count += 1;
+                let m = self.snapshot_metrics(now_ms);
+                let mut b =
+                    self.make_beacon(BeaconEvent::Error, Some(PlayerState::Error), Some(m), now_ms);
+                b.error = Some(PlayerError { code, message, fatal });
+                out.push(b);
+            }
+
+            (PlayerState::Ready, PlayerEvent::Error { code, message, fatal }) => {
+                self.state = PlayerState::Error;
+                self.error_count += 1;
+                let m = self.snapshot_metrics(now_ms);
+                let mut b =
+                    self.make_beacon(BeaconEvent::Error, Some(PlayerState::Error), Some(m), now_ms);
+                b.error = Some(PlayerError { code, message, fatal });
+                out.push(b);
+            }
+
+            (PlayerState::Paused, PlayerEvent::Error { code, message, fatal }) => {
+                self.watch_tracker.stop(now_ms);
+                self.state = PlayerState::Error;
+                self.error_count += 1;
+                let m = self.snapshot_metrics(now_ms);
+                let mut b =
+                    self.make_beacon(BeaconEvent::Error, Some(PlayerState::Error), Some(m), now_ms);
+                b.error = Some(PlayerError { code, message, fatal });
+                out.push(b);
+            }
+
+            (PlayerState::Ended, PlayerEvent::Error { code, message, fatal }) => {
+                self.state = PlayerState::Error;
+                self.error_count += 1;
+                let m = self.snapshot_metrics(now_ms);
+                let mut b =
+                    self.make_beacon(BeaconEvent::Error, Some(PlayerState::Error), Some(m), now_ms);
+                b.error = Some(PlayerError { code, message, fatal });
+                out.push(b);
+            }
+
             // Ignore all other (state, event) combinations (invalid transitions).
             _ => {}
         }
@@ -1229,6 +1271,66 @@ mod tests {
         // rebuffer timer should have been stopped: 7000 - 5000 = 2000ms
         assert_eq!(m.rebuffer_ms, 2000);
         assert_eq!(m.rebuffer_count, 1);
+    }
+
+    #[test]
+    fn idle_error_emits_error_beacon() {
+        let mut s = make_session();
+        let beacons = s.process_event(
+            PlayerEvent::Error { code: "PRE_LOAD_ERR".to_string(), message: None, fatal: true },
+            100,
+        );
+        assert_eq!(s.state(), PlayerState::Error);
+        assert_eq!(beacons.len(), 1);
+        assert_eq!(beacons[0].event, BeaconEvent::Error);
+        assert_eq!(beacons[0].error.as_ref().unwrap().code, "PRE_LOAD_ERR");
+        assert_eq!(beacons[0].metrics.as_ref().unwrap().error_count, 1);
+    }
+
+    #[test]
+    fn ready_error_emits_error_beacon() {
+        let mut s = make_session();
+        s.process_event(PlayerEvent::Load { src: "x".into() }, 0);
+        s.process_event(PlayerEvent::CanPlay, 0);
+        let beacons = s.process_event(
+            PlayerEvent::Error { code: "READY_ERR".to_string(), message: None, fatal: true },
+            500,
+        );
+        assert_eq!(s.state(), PlayerState::Error);
+        assert_eq!(beacons.len(), 1);
+        assert_eq!(beacons[0].event, BeaconEvent::Error);
+        assert_eq!(beacons[0].error.as_ref().unwrap().code, "READY_ERR");
+    }
+
+    #[test]
+    fn paused_error_stops_watch_timer_and_emits_beacon() {
+        let mut s = make_session();
+        reach_playing(&mut s, 0);
+        s.process_event(PlayerEvent::Pause, 5000);
+        let beacons = s.process_event(
+            PlayerEvent::Error { code: "PAUSED_ERR".to_string(), message: None, fatal: true },
+            8000,
+        );
+        assert_eq!(s.state(), PlayerState::Error);
+        assert_eq!(beacons.len(), 1);
+        assert_eq!(beacons[0].event, BeaconEvent::Error);
+        // watch_tracker was running in Paused; must be stopped at t=8000
+        assert_eq!(beacons[0].metrics.as_ref().unwrap().watched_ms, 8000);
+    }
+
+    #[test]
+    fn ended_error_emits_error_beacon() {
+        let mut s = make_session();
+        reach_playing(&mut s, 0);
+        s.process_event(PlayerEvent::Ended, 5000);
+        let beacons = s.process_event(
+            PlayerEvent::Error { code: "POST_END_ERR".to_string(), message: None, fatal: true },
+            6000,
+        );
+        assert_eq!(s.state(), PlayerState::Error);
+        assert_eq!(beacons.len(), 1);
+        assert_eq!(beacons[0].event, BeaconEvent::Error);
+        assert_eq!(beacons[0].error.as_ref().unwrap().code, "POST_END_ERR");
     }
 
     // ── Error recovery paths ──────────────────────────────────────────────────

@@ -47,13 +47,13 @@ document.getElementById("load-btn")!.addEventListener("click", async () => {
   }
 
   const hls = new Hls();
-  hls.loadSource(url);
-  hls.attachMedia(video);
 
   try {
     currentInstance = await PlinthHlsJs.initialize(hls, video, { id: url }, {
       sessionFactory: loggingSessionFactory,
     });
+    hls.loadSource(url);
+    hls.attachMedia(video);
     log("Session started");
   } catch (err) {
     log(`ERROR: ${err}`);
