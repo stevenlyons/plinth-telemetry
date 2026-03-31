@@ -167,10 +167,10 @@ Use `--no-git-tag-version` to skip the automatic commit and tag — commit the v
 ### 4. Verify package contents (dry run)
 
 ```bash
-cd packages/web/plinth-js && npm pack --dry-run && cd ../../..
-cd packages/web/plinth-hlsjs && npm pack --dry-run && cd ../../..
-cd packages/web/plinth-shaka && npm pack --dry-run && cd ../../..
-cd packages/web/plinth-dashjs && npm pack --dry-run && cd ../../..
+cd packages/web/plinth-js && pnpm pack --dry-run && cd ../../..
+cd packages/web/plinth-hlsjs && pnpm pack --dry-run && cd ../../..
+cd packages/web/plinth-shaka && pnpm pack --dry-run && cd ../../..
+cd packages/web/plinth-dashjs && pnpm pack --dry-run && cd ../../..
 ```
 
 Each tarball should contain `dist/` (and `wasm/` for `plinth-js`) and nothing else unexpected.
