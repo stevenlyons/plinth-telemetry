@@ -27,6 +27,10 @@ async function loggingSessionFactory(
 
 let currentInstance: PlinthHlsJs | null = null;
 
+document.getElementById("clear-log")!.addEventListener("click", () => {
+  document.getElementById("log")!.innerHTML = "";
+});
+
 document.getElementById("url-input")!.addEventListener("keydown", (e) => {
   if (e.key === "Enter") document.getElementById("load-btn")!.click();
 });

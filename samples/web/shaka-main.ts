@@ -28,6 +28,10 @@ async function loggingSessionFactory(
 let currentPlayer: any = null;
 let currentInstance: PlinthShaka | null = null;
 
+document.getElementById("clear-log")!.addEventListener("click", () => {
+  document.getElementById("log")!.innerHTML = "";
+});
+
 document.getElementById("url-input")!.addEventListener("keydown", (e) => {
   if (e.key === "Enter") document.getElementById("load-btn")!.click();
 });
