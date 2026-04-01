@@ -1,7 +1,7 @@
 import { PlinthSession } from "@wirevice/plinth-js";
 import type { PlinthConfig, PlayerEvent, SessionMeta } from "@wirevice/plinth-js";
 
-export type SessionFactory = (meta: SessionMeta, config?: PlinthConfig) => Promise<PlinthSession>;
+type SessionFactory = (meta: SessionMeta, config?: PlinthConfig) => Promise<PlinthSession>;
 type Teardown = () => void | Promise<void>;
 type Loader = (url: string, video: HTMLVideoElement, sessionFactory: SessionFactory) => Promise<Teardown>;
 
@@ -39,7 +39,9 @@ export function setupDemo(loader: Loader): void {
   });
 
   document.getElementById("load-btn")!.addEventListener("click", async () => {
-    if (teardown) { await teardown(); teardown = null; }
+    const pending = teardown;
+    teardown = null;
+    if (pending) await pending;
     log("— loading —");
     const url = (document.getElementById("url-input") as HTMLInputElement).value.trim();
     if (!url) return;
