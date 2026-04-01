@@ -41,7 +41,7 @@ export function setupDemo(loader: Loader): void {
   document.getElementById("load-btn")!.addEventListener("click", async () => {
     const pending = teardown;
     teardown = null;
-    if (pending) await pending;
+    if (pending) await pending();
     log("— loading —");
     const url = (document.getElementById("url-input") as HTMLInputElement).value.trim();
     if (!url) return;
