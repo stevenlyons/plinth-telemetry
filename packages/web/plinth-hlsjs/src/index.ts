@@ -182,7 +182,7 @@ export class PlinthHlsJs {
 
     const onSeeking: EventListener = () => {
       this.isSeeking = true;
-      this.emit({ type: "seek_start", from_ms: this.lastPlayheadMs });
+      this.emit({ type: "seek_start", from_ms: Math.round(this.lastPlayheadMs) });
     };
     this.video.addEventListener("seeking", onSeeking);
     this.videoHandlers.set("seeking", onSeeking);
@@ -191,7 +191,7 @@ export class PlinthHlsJs {
       this.isSeeking = false;
       this.emit({
         type: "seek_end",
-        to_ms: this.video.currentTime * 1000,
+        to_ms: Math.round(this.video.currentTime * 1000),
         buffer_ready: isBufferReady(this.video),
       });
     };
@@ -203,7 +203,7 @@ export class PlinthHlsJs {
     this.videoHandlers.set("ended", onEnded);
 
     const onTimeUpdate: EventListener = () => {
-      const ms = this.video.currentTime * 1000;
+      const ms = Math.round(this.video.currentTime * 1000);
       this.lastPlayheadMs = ms;
       this.session.setPlayhead(ms);
     };
