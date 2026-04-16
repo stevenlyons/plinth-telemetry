@@ -438,6 +438,20 @@ impl Session {
                 }
             }
 
+            (PlayerState::Seeking, PlayerEvent::Playing) => {
+                self.pre_seek_state = None;
+                self.seek_from_ms = None;
+                self.state = PlayerState::Playing;
+                self.played_tracker.start(now_ms);
+                let m = self.snapshot_metrics(now_ms);
+                out.push(self.make_beacon(
+                    BeaconEvent::Playing,
+                    Some(PlayerState::Playing),
+                    Some(m),
+                    now_ms,
+                ));
+            }
+
             (PlayerState::Seeking, PlayerEvent::Error { code, message, fatal }) => {
                 self.pre_seek_state = None;
                 self.seek_from_ms = None;
@@ -890,6 +904,20 @@ mod tests {
         );
         assert_eq!(s.state(), PlayerState::Paused);
         assert_eq!(beacons[0].state, Some(PlayerState::Paused));
+    }
+
+    #[test]
+    fn seeking_playing_resolves_to_playing_with_beacon() {
+        // Simulates the JS layer sending Playing after seek debounce instead of SeekEnd.
+        let mut s = make_session();
+        reach_playing(&mut s, 0);
+        s.process_event(PlayerEvent::SeekStart { from_ms: 10_000 }, 11_000);
+        assert_eq!(s.state(), PlayerState::Seeking);
+        let beacons = s.process_event(PlayerEvent::Playing, 11_500);
+        assert_eq!(s.state(), PlayerState::Playing);
+        assert_eq!(beacons.len(), 1);
+        assert_eq!(beacons[0].event, BeaconEvent::Playing);
+        assert_eq!(beacons[0].state, Some(PlayerState::Playing));
     }
 
     #[test]

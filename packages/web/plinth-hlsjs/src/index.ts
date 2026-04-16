@@ -14,16 +14,6 @@ export type { PlinthConfig, SessionMeta };
 type HlsHandler = (event: string, data: any) => void;
 type SessionFactory = (meta: SessionMeta, config?: PlinthConfig) => Promise<PlinthSession>;
 
-function isBufferReady(video: HTMLVideoElement): boolean {
-  const buffered = video.buffered;
-  const ct = video.currentTime;
-  for (let i = 0; i < buffered.length; i++) {
-    if (buffered.start(i) <= ct && ct <= buffered.end(i)) {
-      return true;
-    }
-  }
-  return false;
-}
 
 export class PlinthHlsJs {
   private session: PlinthSession;
@@ -203,13 +193,10 @@ export class PlinthHlsJs {
         this._seekDebounceTimer = null;
         this.isSeeking = false;
         if (this._pendingSeekFrom !== null) {
-          const seekTo = Math.round(this.video.currentTime * 1000);
-          this.emit({
-            type: "seek_end",
-            to_ms: seekTo,
-            buffer_ready: isBufferReady(this.video),
-          });
           this._pendingSeekFrom = null;
+          if (!this.video.paused) {
+            this.emit({ type: "playing" });
+          }
         }
       }, 300);
     };
