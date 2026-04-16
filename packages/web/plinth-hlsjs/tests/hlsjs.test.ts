@@ -155,12 +155,12 @@ describe("PlinthHlsJs", () => {
     assertCalledWith(mockSession.processEvent, { type: "first_frame" });
   });
 
-  // 4b. video playing (subsequent) → playing
+  // 4b. video playing (subsequent, not seeking) → playing
   it("video 'playing' (subsequent) → processEvent({ type:'playing' })", async () => {
     instance = await setup(hls, video, mockSession);
     video.fire("playing"); // first_frame
     mockSession.processEvent.mock.resetCalls();
-    video.fire("playing"); // playing
+    video.fire("playing"); // playing (isSeeking=false by default)
 
     assertCalledWith(mockSession.processEvent, { type: "playing" });
   });
@@ -242,6 +242,7 @@ describe("PlinthHlsJs", () => {
       start: (_i: number) => 0,
       end: (_i: number) => 10,
     } as unknown as TimeRanges;
+    video.fire("seeking");
     video.fire("seeked");
     mock.timers.tick(300);
 
@@ -261,6 +262,7 @@ describe("PlinthHlsJs", () => {
       start: (_i: number) => 0,
       end: (_i: number) => 10,
     } as unknown as TimeRanges;
+    video.fire("seeking");
     video.fire("seeked");
     mock.timers.tick(300);
 
@@ -372,6 +374,7 @@ describe("PlinthHlsJs", () => {
       start: (i: number) => [0, 10][i],
       end: (i: number) => [5, 20][i],
     } as unknown as TimeRanges;
+    video.fire("seeking");
     video.fire("seeked");
     mock.timers.tick(300);
 
@@ -392,6 +395,7 @@ describe("PlinthHlsJs", () => {
       start: (i: number) => [0, 10][i],
       end: (i: number) => [5, 20][i],
     } as unknown as TimeRanges;
+    video.fire("seeking");
     video.fire("seeked");
     mock.timers.tick(300);
 
@@ -407,6 +411,7 @@ describe("PlinthHlsJs", () => {
     instance = await setup(hls, video, mockSession);
     video.currentTime = 5.0;
     // FakeVideo.buffered defaults to length: 0
+    video.fire("seeking");
     video.fire("seeked");
     mock.timers.tick(300);
 
@@ -440,23 +445,22 @@ describe("PlinthHlsJs", () => {
 
   // ── Seek debounce ──────────────────────────────────────────────────────────
 
-  // 25. seek does not emit immediately — debounce pending
-  it("seek does not emit seek_start immediately after seeked (debounce pending)", async () => {
+  // 25. seek_start emits immediately on first seeking; seek_end deferred
+  it("seek_start emitted on seeking; seek_end not emitted until debounce fires", async () => {
     instance = await setup(hls, video, mockSession);
     video.currentTime = 5.0;
     video.fire("timeupdate");
     video.fire("seeking");
-    video.currentTime = 10.0;
-    video.fire("seeked");
 
-    const hasSeek = mockSession.processEvent.mock.calls.some(
-      (c) => (c.arguments[0] as any).type === "seek_start",
+    assertCalledWith(mockSession.processEvent, { type: "seek_start", from_ms: 5_000 });
+    const hasSeekEnd = mockSession.processEvent.mock.calls.some(
+      (c) => (c.arguments[0] as any).type === "seek_end",
     );
-    assert.ok(!hasSeek, "seek_start must not emit before debounce window");
+    assert.ok(!hasSeekEnd, "seek_end must not emit before debounce window");
   });
 
-  // 26. seek emits after 300ms debounce
-  it("seek emits seek_start and seek_end after 300ms debounce fires", async () => {
+  // 26. seek_end emits after 300ms debounce
+  it("seek_end emitted after 300ms debounce fires", async () => {
     instance = await setup(hls, video, mockSession);
     video.currentTime = 5.0;
     video.fire("timeupdate");
@@ -538,21 +542,22 @@ describe("PlinthHlsJs", () => {
     assertCalledWith(mockSession.processEvent, { type: "stall" });
   });
 
-  // 31. destroy() cancels pending debounce — no seek emitted after destroy
+  // 31. destroy() cancels pending debounce — seek_end not emitted after destroy
   it("destroy() cancels pending seek debounce", async () => {
     instance = await setup(hls, video, mockSession);
     video.currentTime = 5.0;
     video.fire("timeupdate");
-    video.fire("seeking");
+    video.fire("seeking");  // seek_start emitted immediately
     video.currentTime = 10.0;
     video.fire("seeked");
     instance.destroy();
     instance = null;
     mock.timers.tick(300);
 
-    const seekCalls = mockSession.processEvent.mock.calls.filter(
-      (c) => ["seek_start", "seek_end"].includes((c.arguments[0] as any).type),
+    // seek_start was emitted on seeking; seek_end must NOT fire after destroy
+    const seekEndCalls = mockSession.processEvent.mock.calls.filter(
+      (c) => (c.arguments[0] as any).type === "seek_end",
     );
-    assert.strictEqual(seekCalls.length, 0, "no seek events must fire after destroy");
+    assert.strictEqual(seekEndCalls.length, 0, "seek_end must not fire after destroy");
   });
 });

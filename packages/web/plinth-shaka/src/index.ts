@@ -190,6 +190,7 @@ export class PlinthShaka {
     const onSeeking: EventListener = () => {
       if (this._pendingSeekFrom === null) {
         this._pendingSeekFrom = Math.round(this.lastPlayheadMs);
+        this.emit({ type: "seek_start", from_ms: this._pendingSeekFrom });
       }
       this.isSeeking = true;
       clearTimeout(this._seekDebounceTimer!);
@@ -203,17 +204,18 @@ export class PlinthShaka {
       this._seekDebounceTimer = setTimeout(() => {
         this._seekDebounceTimer = null;
         this.isSeeking = false;
-        const seekTo = Math.round(this.video.currentTime * 1000);
-        const seekDistance = Math.abs(seekTo - (this._pendingSeekFrom ?? 0));
-        if (seekDistance > 250) {
-          this.emit({ type: "seek_start", from_ms: this._pendingSeekFrom! });
+        if (this._pendingSeekFrom !== null) {
+          const seekTo = Math.round(this.video.currentTime * 1000);
           this.emit({
             type: "seek_end",
             to_ms: seekTo,
             buffer_ready: isBufferReady(this.video),
           });
+          this._pendingSeekFrom = null;
         }
-        this._pendingSeekFrom = null;
+        if (!this.video.paused && !this.video.ended) {
+          this.emit({ type: "playing" });
+        }
       }, 300);
     };
     this.video.addEventListener("seeked", onSeeked);

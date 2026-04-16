@@ -260,6 +260,7 @@ describe("PlinthDashjs", () => {
       start: (_i: number) => 0,
       end: (_i: number) => 10,
     } as unknown as TimeRanges;
+    video.fire("seeking");
     video.fire("seeked");
     mock.timers.tick(300);
 
@@ -279,6 +280,7 @@ describe("PlinthDashjs", () => {
       start: (_i: number) => 0,
       end: (_i: number) => 10,
     } as unknown as TimeRanges;
+    video.fire("seeking");
     video.fire("seeked");
     mock.timers.tick(300);
 
@@ -414,23 +416,22 @@ describe("PlinthDashjs", () => {
 
   // ── Seek debounce ──────────────────────────────────────────────────────────
 
-  // 22. seek does not emit immediately — debounce pending
-  it("seek does not emit seek_start immediately after seeked (debounce pending)", async () => {
+  // 22. seek_start emitted immediately on seeking; seek_end deferred
+  it("seek_start emitted on seeking; seek_end not emitted until debounce fires", async () => {
     instance = await setup(player, video, mockSession);
     video.currentTime = 5.0;
     video.fire("timeupdate");
     video.fire("seeking");
-    video.currentTime = 10.0;
-    video.fire("seeked");
 
-    const hasSeek = mockSession.processEvent.mock.calls.some(
-      (c) => (c.arguments[0] as any).type === "seek_start",
+    assertCalledWith(mockSession.processEvent, { type: "seek_start", from_ms: 5_000 });
+    const hasSeekEnd = mockSession.processEvent.mock.calls.some(
+      (c) => (c.arguments[0] as any).type === "seek_end",
     );
-    assert.ok(!hasSeek, "seek_start must not emit before debounce window");
+    assert.ok(!hasSeekEnd, "seek_end must not emit before debounce window");
   });
 
-  // 23. seek emits after 300ms debounce
-  it("seek emits seek_start and seek_end after 300ms debounce fires", async () => {
+  // 23. seek_end emits after 300ms debounce
+  it("seek_end emitted after 300ms debounce fires", async () => {
     instance = await setup(player, video, mockSession);
     video.currentTime = 5.0;
     video.fire("timeupdate");
@@ -497,21 +498,22 @@ describe("PlinthDashjs", () => {
     assertCalledWith(mockSession.processEvent, { type: "stall" });
   });
 
-  // 27. destroy() cancels pending debounce
+  // 27. destroy() cancels pending debounce — seek_end not emitted after destroy
   it("destroy() cancels pending seek debounce", async () => {
     instance = await setup(player, video, mockSession);
     video.currentTime = 5.0;
     video.fire("timeupdate");
-    video.fire("seeking");
+    video.fire("seeking");  // seek_start emitted immediately
     video.currentTime = 10.0;
     video.fire("seeked");
     instance.destroy();
     instance = null;
     mock.timers.tick(300);
 
-    const seekCalls = mockSession.processEvent.mock.calls.filter(
-      (c) => ["seek_start", "seek_end"].includes((c.arguments[0] as any).type),
+    // seek_start was emitted on seeking; seek_end must NOT fire after destroy
+    const seekEndCalls = mockSession.processEvent.mock.calls.filter(
+      (c) => (c.arguments[0] as any).type === "seek_end",
     );
-    assert.strictEqual(seekCalls.length, 0, "no seek events must fire after destroy");
+    assert.strictEqual(seekEndCalls.length, 0, "seek_end must not fire after destroy");
   });
 });
