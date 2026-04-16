@@ -13,5 +13,8 @@ echo "==> Installing dependencies..."
 cd "$REPO_ROOT"
 pnpm install
 
+echo "==> Building packages..."
+pnpm -r build
+
 echo "==> Starting web demo..."
 pnpm --filter @wirevice/plinth-dev start
