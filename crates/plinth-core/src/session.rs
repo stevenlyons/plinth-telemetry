@@ -40,6 +40,9 @@ pub struct Session {
     seek_buffer_tracker: TimeTracker,
     /// Timestamp (ms) when the current play attempt started; used to compute VST.
     play_attempt_ts: Option<u64>,
+    /// Play arrived while still in Loading state; stored so CanPlay can honour
+    /// the original timestamp and jump straight to PlayAttempt.
+    pending_play_ts: Option<u64>,
     /// Playhead position at the time seekStart fired; echoed on seek_end.
     seek_from_ms: Option<u64>,
     /// Last time a heartbeat was emitted; None if no session is active.
@@ -71,6 +74,7 @@ impl Session {
             rebuffer_tracker: TimeTracker::new(),
             seek_buffer_tracker: TimeTracker::new(),
             play_attempt_ts: None,
+            pending_play_ts: None,
             seek_from_ms: None,
             last_heartbeat_ms: Some(now_ms),
             playhead_ms: 0,
@@ -160,6 +164,7 @@ impl Session {
         self.rebuffer_tracker.reset();
         self.seek_buffer_tracker.reset();
         self.play_attempt_ts = Some(now_ms);
+        self.pending_play_ts = None;
         self.watch_tracker.start(now_ms);
         self.last_heartbeat_ms = Some(now_ms);
         self.seek_from_ms = None;
@@ -185,24 +190,48 @@ impl Session {
         match (self.state, event) {
             // ── Loading ───────────────────────────────────────────────────────
             (PlayerState::Idle, PlayerEvent::Load { .. }) => {
+                self.pending_play_ts = None;
                 self.state = PlayerState::Loading;
             }
 
+            // New source while already loading: reset and stay in Loading.
+            (PlayerState::Loading, PlayerEvent::Load { .. }) => {
+                self.pending_play_ts = None;
+            }
+
+            // Play arrived before metadata is ready: remember the timestamp so that
+            // when CanPlay fires we can start the session with the correct origin time
+            // and jump straight to PlayAttempt. This fixes vst_ms for adapters (e.g.
+            // dash.js) where the player's `play` event fires before the manifest is loaded.
+            (PlayerState::Loading, PlayerEvent::Play) => {
+                self.pending_play_ts = Some(now_ms);
+            }
+
             (PlayerState::Loading, PlayerEvent::CanPlay) => {
-                self.state = PlayerState::Ready;
+                if let Some(play_ts) = self.pending_play_ts.take() {
+                    // Play was already requested; skip Ready and go straight to PlayAttempt.
+                    self.begin_session(play_ts);
+                    self.state = PlayerState::PlayAttempt;
+                    out.push(self.emit_play_open(play_ts));
+                } else {
+                    self.state = PlayerState::Ready;
+                }
             }
 
             (PlayerState::Loading, PlayerEvent::Error { code, message, fatal }) => {
+                self.pending_play_ts = None;
                 out.push(self.emit_error(code, message, fatal, now_ms));
             }
 
             // Also handle load(newSrc) from Ended → Loading
             (PlayerState::Ended, PlayerEvent::Load { .. }) => {
+                self.pending_play_ts = None;
                 self.state = PlayerState::Loading;
             }
 
             // And Error → Loading (retry)
             (PlayerState::Error, PlayerEvent::Load { .. }) => {
+                self.pending_play_ts = None;
                 self.state = PlayerState::Loading;
             }
 
@@ -443,7 +472,18 @@ impl Session {
                 }
             }
 
+            // Seek-induced buffering: track time and count without emitting a beacon.
+            // seek_buffer_count increments once per seek that causes stalling (not per
+            // waiting event), guarded by whether the tracker is already running.
+            (PlayerState::Seeking, PlayerEvent::Stall) => {
+                if !self.seek_buffer_tracker.is_running() {
+                    self.seek_buffer_count += 1;
+                }
+                self.seek_buffer_tracker.start(now_ms);
+            }
+
             (PlayerState::Seeking, PlayerEvent::Playing) => {
+                self.seek_buffer_tracker.stop(now_ms);
                 self.pre_seek_state = None;
                 self.seek_from_ms = None;
                 self.state = PlayerState::Playing;
@@ -458,6 +498,7 @@ impl Session {
             }
 
             (PlayerState::Seeking, PlayerEvent::Error { code, message, fatal }) => {
+                self.seek_buffer_tracker.stop(now_ms);
                 self.pre_seek_state = None;
                 self.seek_from_ms = None;
                 self.watch_tracker.stop(now_ms);
@@ -740,6 +781,61 @@ mod tests {
         s.process_event(PlayerEvent::Load { src: "x".into() }, 0);
         s.process_event(PlayerEvent::CanPlay, 100);
         assert_eq!(s.state(), PlayerState::Ready);
+    }
+
+    // ── Pending-play (Play arrives during Loading) ────────────────────────────
+
+    #[test]
+    fn play_during_loading_then_can_play_goes_to_play_attempt() {
+        let mut s = make_session();
+        s.process_event(PlayerEvent::Load { src: "x".into() }, 0);
+        // Play fires before CanPlay (e.g. dash.js adapter)
+        let beacons = s.process_event(PlayerEvent::Play, 200);
+        assert_eq!(s.state(), PlayerState::Loading, "still Loading — waiting for CanPlay");
+        assert!(beacons.is_empty(), "no beacons until CanPlay confirms readiness");
+        // Manifest arrives late
+        let beacons = s.process_event(PlayerEvent::CanPlay, 1500);
+        assert_eq!(s.state(), PlayerState::PlayAttempt);
+        assert_eq!(beacons.len(), 1);
+        assert_eq!(beacons[0].event, BeaconEvent::Play);
+        assert!(beacons[0].video.is_some(), "play beacon carries session metadata");
+    }
+
+    #[test]
+    fn pending_play_vst_uses_original_play_timestamp() {
+        let mut s = make_session();
+        s.process_event(PlayerEvent::Load { src: "x".into() }, 0);
+        s.process_event(PlayerEvent::Play, 200);   // play_attempt_ts must be 200
+        s.process_event(PlayerEvent::CanPlay, 1500);
+        // First frame arrives shortly after CanPlay
+        let beacons = s.process_event(PlayerEvent::FirstFrame, 1600);
+        let ff = beacons.iter().find(|b| b.event == BeaconEvent::FirstFrame).unwrap();
+        let vst = ff.metrics.as_ref().unwrap().vst_ms.unwrap();
+        // vst_ms = first_frame_ts - play_ts = 1600 - 200 = 1400
+        assert_eq!(vst, 1400, "vst_ms measured from original Play timestamp, not CanPlay");
+    }
+
+    #[test]
+    fn no_pending_play_can_play_still_goes_to_ready() {
+        // Normal flow (hls.js / shaka): CanPlay arrives before Play
+        let mut s = make_session();
+        s.process_event(PlayerEvent::Load { src: "x".into() }, 0);
+        s.process_event(PlayerEvent::CanPlay, 100);
+        assert_eq!(s.state(), PlayerState::Ready, "unchanged normal path");
+    }
+
+    #[test]
+    fn new_load_clears_pending_play() {
+        let mut s = make_session();
+        s.process_event(PlayerEvent::Load { src: "x".into() }, 0);
+        s.process_event(PlayerEvent::Play, 100);
+        assert_eq!(s.state(), PlayerState::Loading);
+        // Source changed before manifest arrived
+        s.process_event(PlayerEvent::Load { src: "y".into() }, 200);
+        assert_eq!(s.state(), PlayerState::Loading);
+        // CanPlay for the new source — pending play was cleared, should go to Ready
+        s.process_event(PlayerEvent::CanPlay, 300);
+        assert_eq!(s.state(), PlayerState::Ready, "pending play cleared by new Load");
     }
 
     #[test]
@@ -1901,6 +1997,48 @@ mod tests {
         let beacons = s.process_event(PlayerEvent::Playing, 7_200);
         let m = beacons[0].metrics.as_ref().unwrap();
         assert_eq!(m.rebuffer_ms, 0);
+    }
+
+    #[test]
+    fn seek_stall_increments_seek_buffer_count_and_tracks_time() {
+        let mut s = make_session();
+        reach_playing(&mut s, 0);
+        s.process_event(PlayerEvent::Seek { from_ms: 5_000 }, 5_000);
+        // Buffer empty after seek
+        s.process_event(PlayerEvent::Stall, 5_200);
+        // Playback resumes — this is what closes the seek-induced stall
+        let beacons = s.process_event(PlayerEvent::Playing, 6_200);
+        let m = beacons[0].metrics.as_ref().unwrap();
+        assert_eq!(m.seek_buffer_count, 1);
+        assert_eq!(m.seek_buffer_ms, 1000); // 6200 - 5200
+        assert_eq!(m.rebuffer_count, 0, "regular rebuffer_count unaffected");
+        assert_eq!(m.rebuffer_ms, 0);
+    }
+
+    #[test]
+    fn seek_stall_count_increments_once_for_multiple_waiting_events() {
+        let mut s = make_session();
+        reach_playing(&mut s, 0);
+        s.process_event(PlayerEvent::Seek { from_ms: 5_000 }, 5_000);
+        // Multiple stall events during the same seek (e.g. repeated waiting fires)
+        s.process_event(PlayerEvent::Stall, 5_200);
+        s.process_event(PlayerEvent::Stall, 5_300);
+        let beacons = s.process_event(PlayerEvent::Playing, 6_200);
+        let m = beacons[0].metrics.as_ref().unwrap();
+        assert_eq!(m.seek_buffer_count, 1, "counted once per seek, not per waiting event");
+        assert_eq!(m.seek_buffer_ms, 1000); // started at 5200
+    }
+
+    #[test]
+    fn seek_without_stall_does_not_affect_seek_buffer_metrics() {
+        let mut s = make_session();
+        reach_playing(&mut s, 0);
+        s.process_event(PlayerEvent::Seek { from_ms: 5_000 }, 5_000);
+        // Buffer already ready — playing fires immediately with no stall
+        let beacons = s.process_event(PlayerEvent::Playing, 5_100);
+        let m = beacons[0].metrics.as_ref().unwrap();
+        assert_eq!(m.seek_buffer_count, 0);
+        assert_eq!(m.seek_buffer_ms, 0);
     }
 
     #[test]

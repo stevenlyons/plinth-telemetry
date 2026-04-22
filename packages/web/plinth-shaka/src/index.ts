@@ -107,9 +107,7 @@ export class PlinthShaka {
 
     const onBuffering: EventListener = (e) => {
       if ((e as any).buffering) {
-        if (!this.isSeeking) {
-          this.emit(this.hasFiredFirstFrame ? { type: "stall" } : { type: "waiting" });
-        }
+        this.emit(this.hasFiredFirstFrame ? { type: "stall" } : { type: "waiting" });
       } else if (!this.isSeeking) {
         this.emit({ type: "playing" });
       }

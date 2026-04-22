@@ -183,7 +183,7 @@ export class PlinthDashjs {
 
     const onWaiting: EventListener = () => {
       if (this.hasFiredFirstFrame) {
-        if (!this.isSeeking) this.emit({ type: "stall" });
+        this.emit({ type: "stall" });
       } else {
         this.emit({ type: "waiting" });
       }
