@@ -552,23 +552,15 @@ impl Session {
                 self.seek_from_ms = Some(from_ms);
                 self.seek_count += 1;
                 self.state = PlayerState::Seeking;
-                // Emit playing to close the rebuffer interval, then seek_start.
                 let m = self.snapshot_metrics(now_ms);
-                let b1 = self.make_beacon(
-                    BeaconEvent::Playing,
-                    Some(PlayerState::Seeking),
-                    Some(m.clone()),
-                    now_ms,
-                );
-                out.push(b1);
-                let mut b2 = self.make_beacon(
+                let mut b = self.make_beacon(
                     BeaconEvent::Seek,
                     Some(PlayerState::Seeking),
                     Some(m),
                     now_ms,
                 );
-                b2.seek_from_ms = Some(from_ms);
-                out.push(b2);
+                b.seek_from_ms = Some(from_ms);
+                out.push(b);
             }
 
             (PlayerState::Rebuffering, PlayerEvent::Error { code, message, fatal }) => {
@@ -1124,15 +1116,16 @@ mod tests {
     }
 
     #[test]
-    fn rebuffering_seek_emits_playing_then_seek_start() {
+    fn rebuffering_seek_emits_seek_only() {
         let mut s = make_session();
         reach_playing(&mut s, 0);
         s.process_event(PlayerEvent::Stall, 5000);
         let beacons = s.process_event(PlayerEvent::Seek { from_ms: 4500 }, 6000);
         assert_eq!(s.state(), PlayerState::Seeking);
-        assert_eq!(beacons.len(), 2);
-        assert_eq!(beacons[0].event, BeaconEvent::Playing);
-        assert_eq!(beacons[1].event, BeaconEvent::Seek);
+        assert_eq!(beacons.len(), 1);
+        assert_eq!(beacons[0].event, BeaconEvent::Seek);
+        let m = beacons[0].metrics.as_ref().unwrap();
+        assert_eq!(m.rebuffer_ms, 1000); // rebuffer tracked correctly without spurious playing
     }
 
     #[test]
