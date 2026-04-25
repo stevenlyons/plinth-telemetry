@@ -12,4 +12,4 @@ setupDemo(async (url, video, sessionFactory) => {
   hls.loadSource(url);
   hls.attachMedia(video);
   return () => instance.destroy();
-});
+}, "hlsjs");

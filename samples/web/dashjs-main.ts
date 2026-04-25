@@ -10,4 +10,4 @@ setupDemo(async (url, video, sessionFactory) => {
   const instance = await PlinthDashjs.initialize(player as any, video, { id: url }, { sessionFactory });
   player.initialize(video, url, false);
   return () => { instance.destroy(); player.reset(); };
-});
+}, "dashjs");

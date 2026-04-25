@@ -12,4 +12,4 @@ setupDemo(async (url, video, sessionFactory) => {
   const instance = await PlinthShaka.initialize(player, video, { id: url }, { sessionFactory });
   await player.load(url);
   return async () => { instance.destroy(); await player.destroy(); };
-});
+}, "shaka");

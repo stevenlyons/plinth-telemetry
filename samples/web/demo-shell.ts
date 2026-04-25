@@ -60,38 +60,41 @@ export function showVersions(versions: Record<string, string>): void {
     .join("  ·  ");
 }
 
-const HISTORY_KEY = "plinth_url_history";
 const HISTORY_MAX = 10;
 
-function loadHistory(): string[] {
+function historyKey(player: string): string {
+  return `plinth_url_history_${player}`;
+}
+
+function loadHistory(player: string): string[] {
   try {
-    return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]");
+    return JSON.parse(localStorage.getItem(historyKey(player)) ?? "[]");
   } catch {
     return [];
   }
 }
 
-function saveHistory(history: string[]): void {
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+function saveHistory(player: string, history: string[]): void {
+  localStorage.setItem(historyKey(player), JSON.stringify(history));
 }
 
-function addToHistory(url: string): void {
-  const history = loadHistory().filter((u) => u !== url);
+function addToHistory(player: string, url: string): void {
+  const history = loadHistory(player).filter((u) => u !== url);
   history.unshift(url);
-  saveHistory(history.slice(0, HISTORY_MAX));
+  saveHistory(player, history.slice(0, HISTORY_MAX));
 }
 
-function deleteFromHistory(url: string): void {
-  saveHistory(loadHistory().filter((u) => u !== url));
+function deleteFromHistory(player: string, url: string): void {
+  saveHistory(player, loadHistory(player).filter((u) => u !== url));
 }
 
-function setupUrlHistory(): void {
+function setupUrlHistory(player: string): void {
   const input = document.getElementById("url-input") as HTMLInputElement;
   const dropdown = document.getElementById("url-dropdown")!;
   let closeTimeout: ReturnType<typeof setTimeout> | null = null;
 
   function renderDropdown(filter: string): void {
-    const history = loadHistory().filter((u) =>
+    const history = loadHistory(player).filter((u) =>
       !filter || u.toLowerCase().includes(filter.toLowerCase())
     );
     if (history.length === 0) {
@@ -137,7 +140,7 @@ function setupUrlHistory(): void {
     const delBtn = target.closest<HTMLElement>(".url-hist-del");
     if (delBtn) {
       const url = decodeURIComponent(delBtn.dataset.del ?? "");
-      deleteFromHistory(url);
+      deleteFromHistory(player, url);
       renderDropdown(input.value);
       return;
     }
@@ -149,10 +152,10 @@ function setupUrlHistory(): void {
   });
 }
 
-export function setupDemo(loader: Loader): void {
+export function setupDemo(loader: Loader, player: string): void {
   let teardown: Teardown | null = null;
 
-  setupUrlHistory();
+  setupUrlHistory(player);
 
   document.getElementById("clear-log")!.addEventListener("click", () => {
     document.getElementById("log")!.innerHTML = "";
@@ -185,7 +188,7 @@ export function setupDemo(loader: Loader): void {
     const video = document.getElementById("video") as HTMLVideoElement;
     try {
       teardown = await loader(url, video, loggingSessionFactory);
-      addToHistory(url);
+      addToHistory(player, url);
       log("Session started");
       const autostart = (document.getElementById("autostart") as HTMLInputElement).checked;
       if (autostart) video.play();
