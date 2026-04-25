@@ -47,10 +47,13 @@ class FakeVideo extends EventTarget {
   currentTime = 0;
   paused = true;
   ended = false;
+  seeking = false;
   buffered = { length: 0, start: (_i: number) => 0, end: (_i: number) => 0 } as unknown as TimeRanges;
   error: { code: number; message?: string } | null = null;
 
   fire(name: string): void {
+    if (name === "seeking") this.seeking = true;
+    if (name === "seeked") this.seeking = false;
     this.dispatchEvent(new Event(name));
   }
 }
@@ -240,7 +243,7 @@ describe("PlinthShaka", () => {
     assert.deepStrictEqual(seekCall?.arguments[0], { type: "seek", from_ms: 5_000 });
   });
 
-  // 11. seek completes → seek_end emitted with buffer_ready
+  // 11. seek completes → seek_end emitted with buffer_ready, then playing replayed
   it("seek completes → seek_end emitted with buffer_ready", async () => {
     instance = await setup(player, video, mockSession);
     video.paused = false;
@@ -251,6 +254,7 @@ describe("PlinthShaka", () => {
     mock.timers.tick(300);
 
     assertCalledWith(mockSession.processEvent, { type: "seek_end", to_ms: 10_000, buffer_ready: true });
+    assertCalledWith(mockSession.processEvent, { type: "playing" });
   });
 
   // 12. seek completes while paused → seek_end emitted, playing NOT emitted from debounce
@@ -286,6 +290,18 @@ describe("PlinthShaka", () => {
     video.fire("pause");
 
     assert.strictEqual(mockSession.processEvent.mock.callCount(), 0);
+  });
+
+  // 13c. pause during seeking → suppressed (spurious browser event during seek)
+  it("video 'pause' during seeking → pause suppressed", async () => {
+    instance = await setup(player, video, mockSession);
+    video.fire("seeking"); // seeking = true
+    video.fire("pause");   // browser fires this during seek; must be suppressed
+
+    const pauseCalls = mockSession.processEvent.mock.calls.filter(
+      (c) => (c.arguments[0] as any).type === "pause",
+    );
+    assert.strictEqual(pauseCalls.length, 0, "pause must be suppressed while seeking");
   });
 
   // 14. timeupdate → setPlayhead(ms)
@@ -404,7 +420,7 @@ describe("PlinthShaka", () => {
     assert.ok(!hasSeekEnd, "seek_end must not emit before debounce window");
   });
 
-  // 23. seek_end emitted after 300ms debounce with to_ms and buffer_ready
+  // 23. seek_end emitted after 300ms debounce with to_ms and buffer_ready, then playing replayed
   it("seek_end emitted after 300ms debounce fires", async () => {
     instance = await setup(player, video, mockSession);
     video.paused = false;
@@ -418,6 +434,7 @@ describe("PlinthShaka", () => {
 
     assertCalledWith(mockSession.processEvent, { type: "seek", from_ms: 5_000 });
     assertCalledWith(mockSession.processEvent, { type: "seek_end", to_ms: 10_000, buffer_ready: true });
+    assertCalledWith(mockSession.processEvent, { type: "playing" });
   });
 
   // 24. scrubbing emits exactly one seek for many seeking/seeked pairs
@@ -499,6 +516,7 @@ describe("PlinthShaka", () => {
     assert.ok(seekEndCall, "seek_end must be emitted");
     assert.strictEqual((seekEndCall!.arguments[0] as any).buffer_ready, true,
       "buffer_ready must be true when video is playing at debounce time");
+    assertCalledWith(mockSession.processEvent, { type: "playing" });
   });
 
   // 30. 'ended' during seek — seek_end settled before ended so state machine exits Seeking

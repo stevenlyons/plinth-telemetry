@@ -36,10 +36,13 @@ class FakeVideo extends EventTarget {
   currentTime = 0;
   paused = true;
   ended = false;
+  seeking = false;
   buffered = { length: 0, start: (_i: number) => 0, end: (_i: number) => 0 } as unknown as TimeRanges;
   error: { code: number; message?: string } | null = null;
 
   fire(name: string): void {
+    if (name === "seeking") this.seeking = true;
+    if (name === "seeked") this.seeking = false;
     this.dispatchEvent(new Event(name));
   }
 }
@@ -208,6 +211,18 @@ describe("PlinthHlsJs", () => {
     assert.strictEqual(mockSession.processEvent.mock.callCount(), 0);
   });
 
+  // 7c. pause during seeking → suppressed (spurious browser event during seek)
+  it("video 'pause' during seeking → pause suppressed", async () => {
+    instance = await setup(hls, video, mockSession);
+    video.fire("seeking"); // seeking = true
+    video.fire("pause");   // browser fires this during seek; must be suppressed
+
+    const pauseCalls = mockSession.processEvent.mock.calls.filter(
+      (c) => (c.arguments[0] as any).type === "pause",
+    );
+    assert.strictEqual(pauseCalls.length, 0, "pause must be suppressed while seeking");
+  });
+
   // 9. video timeupdate → setPlayhead(ms)
   it("video 'timeupdate' → setPlayhead(currentTime * 1000)", async () => {
     instance = await setup(hls, video, mockSession);
@@ -233,7 +248,7 @@ describe("PlinthHlsJs", () => {
     assert.deepStrictEqual(seekCall?.arguments[0], { type: "seek", from_ms: 5_000 });
   });
 
-  // 11. seek completes → seek_end emitted with buffer_ready
+  // 11. seek completes → seek_end emitted with buffer_ready, then playing replayed
   it("seek completes → seek_end emitted with buffer_ready", async () => {
     instance = await setup(hls, video, mockSession);
     video.paused = false;
@@ -244,6 +259,7 @@ describe("PlinthHlsJs", () => {
     mock.timers.tick(300);
 
     assertCalledWith(mockSession.processEvent, { type: "seek_end", to_ms: 10_000, buffer_ready: true });
+    assertCalledWith(mockSession.processEvent, { type: "playing" });
   });
 
   // 12. seek completes while paused → seek_end emitted, playing NOT emitted from debounce
@@ -355,8 +371,8 @@ describe("PlinthHlsJs", () => {
     assert.strictEqual(mockSession.destroy.mock.callCount(), 1);
   });
 
-  // 20. seek_end IS emitted after debounce (not replaced by playing)
-  it("seek_end emitted after debounce (not replaced by playing)", async () => {
+  // 20. seek_end and playing both emitted from debounce when video is not paused
+  it("seek_end and playing both emitted from debounce when video is not paused", async () => {
     instance = await setup(hls, video, mockSession);
     video.paused = false;
     video.fire("seeking");
@@ -370,7 +386,7 @@ describe("PlinthHlsJs", () => {
     const playingCalls = mockSession.processEvent.mock.calls.filter(
       (c) => (c.arguments[0] as any).type === "playing",
     );
-    assert.strictEqual(playingCalls.length, 0, "playing must not be emitted from debounce");
+    assert.strictEqual(playingCalls.length, 1, "playing must be replayed after seek_end when video is not paused");
   });
 
   // 21. seek then video paused — seek_end emitted, playing NOT emitted from debounce
@@ -449,7 +465,7 @@ describe("PlinthHlsJs", () => {
     assert.ok(!hasSeekEnd, "seek_end must not emit before debounce window");
   });
 
-  // 26. seek_end emitted after 300ms debounce with to_ms and buffer_ready
+  // 26. seek_end emitted after 300ms debounce with to_ms and buffer_ready, then playing replayed
   it("seek_end emitted after 300ms debounce fires", async () => {
     instance = await setup(hls, video, mockSession);
     video.paused = false;
@@ -463,6 +479,7 @@ describe("PlinthHlsJs", () => {
 
     assertCalledWith(mockSession.processEvent, { type: "seek", from_ms: 5_000 });
     assertCalledWith(mockSession.processEvent, { type: "seek_end", to_ms: 10_000, buffer_ready: true });
+    assertCalledWith(mockSession.processEvent, { type: "playing" });
   });
 
   // 27. scrubbing emits exactly one seek for many seeking/seeked pairs
@@ -545,6 +562,7 @@ describe("PlinthHlsJs", () => {
     assert.ok(seekEndCall, "seek_end must be emitted");
     assert.strictEqual((seekEndCall!.arguments[0] as any).buffer_ready, true,
       "buffer_ready must be true when video is playing at debounce time");
+    assertCalledWith(mockSession.processEvent, { type: "playing" });
   });
 
   // 33. 'ended' during seek — seek_end settled before ended so state machine exits Seeking
