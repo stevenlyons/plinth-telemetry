@@ -16,32 +16,24 @@ type SessionFactory = (meta: SessionMeta, config?: PlinthConfig) => Promise<Plin
 const DashjsEvents = {
   MANIFEST_LOADING_STARTED: "manifestLoadingStarted",
   STREAM_INITIALIZED: "streamInitialized",
-  QUALITY_CHANGE_RENDERED: "qualityChangeRendered",
+  QUALITY_CHANGE_REQUESTED: "qualityChangeRequested",
   ERROR: "error",
 } as const;
 
 // Minimal structural interface — avoids importing dashjs in library code
 interface DashjsRepresentation {
+  index: number;
   bandwidth: number;
-  width?: number | null;
-  height?: number | null;
-  frameRate?: number | string | null;
-  codecs?: string | null;
+  width: number;
+  height: number;
 }
 
 interface DashjsPlayer {
   on(event: string, handler: (e?: unknown) => void, scope?: unknown): void;
   off(event: string, handler: (e?: unknown) => void, scope?: unknown): void;
   getSource(): string | null;
-  getCurrentRepresentationForType(type: "video"): DashjsRepresentation | null;
 }
 
-// MPEG-DASH frameRate can be a fraction string like "30000/1001"
-function parseFrameRate(fr: number | string | null | undefined): string | undefined {
-  if (fr == null) return undefined;
-  if (typeof fr === "number") return String(fr);
-  return fr || undefined;
-}
 
 export class PlinthDashjs {
   private session: PlinthSession;
@@ -50,7 +42,7 @@ export class PlinthDashjs {
   private lastPlayheadMs = 0;
   private hasFiredFirstFrame = false;
   private seekTracker!: VideoSeekTracker;
-  private lastQualityBandwidth: number | null = null;
+  private lastQualityIndex: number | null = null;
   private destroyed = false;
   private playerHandlers = new Map<string, (e?: unknown) => void>();
   private videoHandlers = new Map<string, EventListener>();
@@ -124,7 +116,7 @@ export class PlinthDashjs {
     const onManifestLoadingStarted = () => {
       this.hasFiredFirstFrame = false;
       this.seekTracker.reset();
-      this.lastQualityBandwidth = null;
+      this.lastQualityIndex = null;
       this.emit({ type: "load", src: this.player.getSource() ?? "" });
     };
     this.player.on(DashjsEvents.MANIFEST_LOADING_STARTED, onManifestLoadingStarted);
@@ -139,24 +131,23 @@ export class PlinthDashjs {
     this.player.on(DashjsEvents.STREAM_INITIALIZED, onStreamInitialized);
     this.playerHandlers.set(DashjsEvents.STREAM_INITIALIZED, onStreamInitialized);
 
-    const onQualityChangeRendered = () => {
-      const rep = this.player.getCurrentRepresentationForType("video");
-      if (!rep) return;
-      if (rep.bandwidth === this.lastQualityBandwidth) return;
-      this.lastQualityBandwidth = rep.bandwidth;
+    const onQualityChangeRequested = (e?: unknown) => {
+      const data = e as { mediaType?: string; newRepresentation?: DashjsRepresentation } | undefined;
+      if (data?.mediaType !== "video" || !data.newRepresentation) return;
+      const rep = data.newRepresentation;
+      if (rep.index === this.lastQualityIndex) return;
+      this.lastQualityIndex = rep.index;
       this.emit({
         type: "quality_change",
         quality: {
           bitrate_bps: rep.bandwidth,
-          width: rep.width ?? undefined,
-          height: rep.height ?? undefined,
-          framerate: parseFrameRate(rep.frameRate),
-          codec: rep.codecs ?? undefined,
+          width: rep.width,
+          height: rep.height,
         },
       });
     };
-    this.player.on(DashjsEvents.QUALITY_CHANGE_RENDERED, onQualityChangeRendered);
-    this.playerHandlers.set(DashjsEvents.QUALITY_CHANGE_RENDERED, onQualityChangeRendered);
+    this.player.on(DashjsEvents.QUALITY_CHANGE_REQUESTED, onQualityChangeRequested);
+    this.playerHandlers.set(DashjsEvents.QUALITY_CHANGE_REQUESTED, onQualityChangeRequested);
 
     const onError = (e?: unknown) => {
       const detail = e as { code?: unknown; message?: string } | undefined;

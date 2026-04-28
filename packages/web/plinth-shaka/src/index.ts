@@ -20,6 +20,7 @@ export class PlinthShaka {
   private lastPlayheadMs = 0;
   private hasFiredFirstFrame = false;
   private seekTracker!: VideoSeekTracker;
+  private lastQualityBandwidth: number | null = null;
   private destroyed = false;
   private shakaHandlers = new Map<string, EventListener>();
   private videoHandlers = new Map<string, EventListener>();
@@ -95,9 +96,25 @@ export class PlinthShaka {
     this.session.processEvent(event);
   }
 
+  private emitQualityForTrack(track: ShakaTrack): void {
+    if (track.bandwidth === this.lastQualityBandwidth) return;
+    this.lastQualityBandwidth = track.bandwidth;
+    this.emit({
+      type: "quality_change",
+      quality: {
+        bitrate_bps: track.bandwidth,
+        width: track.width ?? undefined,
+        height: track.height ?? undefined,
+        framerate: track.frameRate != null ? String(track.frameRate) : undefined,
+        codec: track.videoCodec ?? undefined,
+      },
+    });
+  }
+
   private attachShakaListeners(): void {
     const onLoading: EventListener = () => {
       this.hasFiredFirstFrame = false;
+      this.lastQualityBandwidth = null;
       this.emit({ type: "load", src: this.player.getAssetUri() ?? "" });
     };
     this.player.addEventListener("loading", onLoading);
@@ -122,22 +139,16 @@ export class PlinthShaka {
     this.player.addEventListener("buffering", onBuffering);
     this.shakaHandlers.set("buffering", onBuffering);
 
-    const onAdaptation: EventListener = () => {
-      const track = this.player.getVariantTracks().find((t) => t.active);
-      if (!track) return;
-      this.emit({
-        type: "quality_change",
-        quality: {
-          bitrate_bps: track.bandwidth,
-          width: track.width ?? undefined,
-          height: track.height ?? undefined,
-          framerate: track.frameRate != null ? String(track.frameRate) : undefined,
-          codec: track.videoCodec ?? undefined,
-        },
-      });
+    // adaptation fires for ABR quality switches; variantchanged fires for manual selection.
+    // Both carry newTrack directly in event data.
+    const onVariantSwitch: EventListener = (e) => {
+      const newTrack = (e as any).newTrack as ShakaTrack | undefined;
+      if (newTrack) this.emitQualityForTrack(newTrack);
     };
-    this.player.addEventListener("adaptation", onAdaptation);
-    this.shakaHandlers.set("adaptation", onAdaptation);
+    this.player.addEventListener("adaptation", onVariantSwitch);
+    this.shakaHandlers.set("adaptation", onVariantSwitch);
+    this.player.addEventListener("variantchanged", onVariantSwitch);
+    this.shakaHandlers.set("variantchanged", onVariantSwitch);
 
     const onError: EventListener = (e) => {
       const detail = (e as any).detail as
