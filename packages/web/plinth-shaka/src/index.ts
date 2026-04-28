@@ -50,8 +50,6 @@ export class PlinthShaka {
         player: { name: "plinth-shaka", version: "0.1.0" },
       },
     };
-    // Enable playback-position quality observation so mediaqualitychanged fires reliably
-    player.configure({ streaming: { observeQualityChanges: true } });
     const session = await factory(meta, options?.config);
     const instance = new PlinthShaka(session, player, video);
     instance.seekTracker = new VideoSeekTracker(
@@ -98,9 +96,27 @@ export class PlinthShaka {
     this.session.processEvent(event);
   }
 
+  private emitQualityChangeIfNeeded(): void {
+    const track = this.player.getVariantTracks().find((t) => t.active);
+    if (!track) return;
+    if (track.bandwidth === this.lastQualityBandwidth) return;
+    this.lastQualityBandwidth = track.bandwidth;
+    this.emit({
+      type: "quality_change",
+      quality: {
+        bitrate_bps: track.bandwidth,
+        width: track.width ?? undefined,
+        height: track.height ?? undefined,
+        framerate: track.frameRate != null ? String(track.frameRate) : undefined,
+        codec: track.videoCodec ?? undefined,
+      },
+    });
+  }
+
   private attachShakaListeners(): void {
     const onLoading: EventListener = () => {
       this.hasFiredFirstFrame = false;
+      this.lastQualityBandwidth = null;
       this.emit({ type: "load", src: this.player.getAssetUri() ?? "" });
     };
     this.player.addEventListener("loading", onLoading);
@@ -118,31 +134,21 @@ export class PlinthShaka {
     const onBuffering: EventListener = (e) => {
       if ((e as any).buffering) {
         this.emit(this.hasFiredFirstFrame ? { type: "stall" } : { type: "waiting" });
-      } else if (!this.seekTracker.active) {
-        this.emit({ type: "playing" });
+      } else {
+        // Check for quality change that occurred during the stall before emitting playing.
+        this.emitQualityChangeIfNeeded();
+        if (!this.seekTracker.active) {
+          this.emit({ type: "playing" });
+        }
       }
     };
     this.player.addEventListener("buffering", onBuffering);
     this.shakaHandlers.set("buffering", onBuffering);
 
-    const onMediaQualityChanged: EventListener = (e) => {
-      const quality = (e as any).mediaQuality as ShakaMediaQuality | undefined;
-      if (!quality || quality.contentType !== "video") return;
-      if (quality.bandwidth === this.lastQualityBandwidth) return;
-      this.lastQualityBandwidth = quality.bandwidth;
-      this.emit({
-        type: "quality_change",
-        quality: {
-          bitrate_bps: quality.bandwidth,
-          width: quality.width ?? undefined,
-          height: quality.height ?? undefined,
-          framerate: quality.frameRate != null ? String(quality.frameRate) : undefined,
-          codec: quality.codecs ?? undefined,
-        },
-      });
-    };
-    this.player.addEventListener("mediaqualitychanged", onMediaQualityChanged);
-    this.shakaHandlers.set("mediaqualitychanged", onMediaQualityChanged);
+    // adaptation fires for ABR quality switches during normal playback.
+    const onAdaptation: EventListener = () => this.emitQualityChangeIfNeeded();
+    this.player.addEventListener("adaptation", onAdaptation);
+    this.shakaHandlers.set("adaptation", onAdaptation);
 
     const onError: EventListener = (e) => {
       const detail = (e as any).detail as
@@ -213,17 +219,17 @@ export class PlinthShaka {
   }
 }
 
-// Minimal structural interfaces for shaka.Player to avoid importing the full shaka namespace
-interface ShakaMediaQuality {
-  contentType: string;
+// Minimal structural interface for shaka.Player to avoid importing the full shaka namespace
+interface ShakaTrack {
+  active: boolean;
   bandwidth: number;
   width: number | null;
   height: number | null;
   frameRate: number | null;
-  codecs: string | null;
+  videoCodec: string | null;
 }
 
 interface ShakaPlayer extends EventTarget {
   getAssetUri(): string | null;
-  configure(config: Record<string, unknown>): void;
+  getVariantTracks(): ShakaTrack[];
 }
