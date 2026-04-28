@@ -7,19 +7,9 @@ import type { PlinthSession } from "@wirevice/plinth-js";
 
 class FakePlayer extends EventTarget {
   private _assetUri = "https://example.com/manifest.mpd";
-  private _tracks = [
-    {
-      active: true,
-      bandwidth: 2_500_000,
-      width: 1280,
-      height: 720,
-      frameRate: 29.97,
-      videoCodec: "avc1.4d401f",
-    },
-  ];
 
   getAssetUri(): string { return this._assetUri; }
-  getVariantTracks(): typeof this._tracks { return this._tracks; }
+  configure(_config: unknown): void { /* no-op in tests */ }
 
   fireLoading(): void { this.dispatchEvent(new Event("loading")); }
   fireLoaded(): void  { this.dispatchEvent(new Event("loaded")); }
@@ -30,7 +20,18 @@ class FakePlayer extends EventTarget {
     this.dispatchEvent(e);
   }
 
-  fireAdaptation(): void { this.dispatchEvent(new Event("adaptation")); }
+  fireMediaQualityChanged(quality: {
+    contentType: string;
+    bandwidth: number;
+    width: number | null;
+    height: number | null;
+    frameRate: number | null;
+    codecs: string | null;
+  }): void {
+    const e = new Event("mediaqualitychanged");
+    (e as any).mediaQuality = quality;
+    this.dispatchEvent(e);
+  }
 
   fireError(code: number, severity: number, message = "test error"): void {
     const e = new Event("error");
@@ -313,10 +314,17 @@ describe("PlinthShaka", () => {
     assertCalledWith(mockSession.setPlayhead, 12_500);
   });
 
-  // 15. adaptation → quality_change with all track fields
-  it("'adaptation' → processEvent({ type:'quality_change', quality })", async () => {
+  // 15. mediaqualitychanged (video) → quality_change
+  it("'mediaqualitychanged' for video → processEvent({ type:'quality_change', quality })", async () => {
     instance = await setup(player, video, mockSession);
-    player.fireAdaptation();
+    player.fireMediaQualityChanged({
+      contentType: "video",
+      bandwidth: 2_500_000,
+      width: 1280,
+      height: 720,
+      frameRate: 29.97,
+      codecs: "avc1.4d401f",
+    });
 
     assertCalledWith(mockSession.processEvent, {
       type: "quality_change",
@@ -328,6 +336,36 @@ describe("PlinthShaka", () => {
         codec: "avc1.4d401f",
       },
     });
+  });
+
+  // 15b. mediaqualitychanged for audio → ignored
+  it("'mediaqualitychanged' for audio → quality_change not emitted", async () => {
+    instance = await setup(player, video, mockSession);
+    player.fireMediaQualityChanged({
+      contentType: "audio",
+      bandwidth: 128_000,
+      width: null,
+      height: null,
+      frameRate: null,
+      codecs: "mp4a.40.2",
+    });
+
+    const qualityCalls = mockSession.processEvent.mock.calls.filter(
+      (c) => (c.arguments[0] as any).type === "quality_change",
+    );
+    assert.strictEqual(qualityCalls.length, 0);
+  });
+
+  // 15c. mediaqualitychanged with same bandwidth → quality_change emitted only once
+  it("'mediaqualitychanged' with same bandwidth → quality_change emitted only once", async () => {
+    instance = await setup(player, video, mockSession);
+    player.fireMediaQualityChanged({ contentType: "video", bandwidth: 2_500_000, width: 1280, height: 720, frameRate: null, codecs: null });
+    player.fireMediaQualityChanged({ contentType: "video", bandwidth: 2_500_000, width: 1280, height: 720, frameRate: null, codecs: null });
+
+    const qualityCalls = mockSession.processEvent.mock.calls.filter(
+      (c) => (c.arguments[0] as any).type === "quality_change",
+    );
+    assert.strictEqual(qualityCalls.length, 1);
   });
 
   // 16. Shaka error severity=2 (CRITICAL) → fatal:true
