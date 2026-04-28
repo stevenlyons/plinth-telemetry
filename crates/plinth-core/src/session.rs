@@ -375,11 +375,12 @@ impl Session {
                 out.push(self.emit_error(code, message, fatal, now_ms));
             }
 
-            (PlayerState::Playing, PlayerEvent::QualityChange { quality }) => {
+            (PlayerState::Playing | PlayerState::Rebuffering, PlayerEvent::QualityChange { quality }) => {
+                let state = self.state;
                 let m = self.snapshot_metrics(now_ms);
                 let mut b = self.make_beacon(
                     BeaconEvent::QualityChange,
-                    Some(PlayerState::Playing),
+                    Some(state),
                     Some(m),
                     now_ms,
                 );
@@ -1100,6 +1101,26 @@ mod tests {
         assert_eq!(beacons.len(), 1);
         assert_eq!(beacons[0].event, BeaconEvent::QualityChange);
         assert!(beacons[0].quality.is_some());
+    }
+
+    #[test]
+    fn quality_change_during_rebuffering_emits_beacon() {
+        let mut s = make_session();
+        reach_playing(&mut s, 0);
+        s.process_event(PlayerEvent::Stall, 1000);
+        assert_eq!(s.state(), PlayerState::Rebuffering);
+        let quality = QualityLevel {
+            bitrate_bps: Some(800_000),
+            width: Some(640),
+            height: Some(360),
+            framerate: None,
+            codec: None,
+        };
+        let beacons = s.process_event(PlayerEvent::QualityChange { quality }, 2000);
+        assert_eq!(beacons.len(), 1);
+        assert_eq!(beacons[0].event, BeaconEvent::QualityChange);
+        assert_eq!(beacons[0].state, Some(PlayerState::Rebuffering));
+        assert_eq!(beacons[0].quality.as_ref().unwrap().bitrate_bps, Some(800_000));
     }
 
     #[test]

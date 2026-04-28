@@ -135,7 +135,8 @@ export class PlinthShaka {
     this.shakaHandlers.set("loaded", onLoaded);
 
     const onBuffering: EventListener = (e) => {
-      if ((e as any).buffering) {
+      const isBuffering = (e as any).buffering as boolean;
+      if (isBuffering) {
         this.emit(this.hasFiredFirstFrame ? { type: "stall" } : { type: "waiting" });
       } else {
         // Check for quality change that occurred during the stall before emitting playing.
