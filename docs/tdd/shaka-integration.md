@@ -196,8 +196,9 @@ Listeners are stored in `shakaHandlers` as `EventListener` functions added via `
 | `loaded` | Manifest parsed, content ready | `{ type: "can_play" }` |
 | `buffering` | `(e as any).buffering === true` AND `!hasFiredFirstFrame` | `{ type: "waiting" }` — initial buffer stall |
 | `buffering` | `(e as any).buffering === true` AND `hasFiredFirstFrame` | `{ type: "stall" }` — mid-playback stall |
-| `buffering` | `(e as any).buffering === false` | `{ type: "playing" }` — buffer recovered |
-| `adaptation` | ABR switched variant | `{ type: "quality_change", quality: { ... } }` |
+| `buffering` | `(e as any).buffering === false` AND `!seekTracker.active` | `{ type: "playing" }` — buffer recovered |
+| `adaptation` | ABR switched variant; `event.newTrack` carries the new representation | `{ type: "quality_change", quality: { ... } }` |
+| `variantchanged` | Manual quality selection; `event.newTrack` carries the new representation | `{ type: "quality_change", quality: { ... } }` |
 | `error` | Shaka error | `{ type: "error", code, message, fatal }` |
 | `unloading` | Shaka tearing down | `this.destroy()` |
 
@@ -209,7 +210,7 @@ Listeners are stored in `shakaHandlers` as `EventListener` functions added via `
 const onBuffering: EventListener = (e) => {
   if ((e as any).buffering) {
     this.emit(this.hasFiredFirstFrame ? { type: "stall" } : { type: "waiting" });
-  } else {
+  } else if (!this.seekTracker.active) {
     this.emit({ type: "playing" });
   }
 };
@@ -254,31 +255,46 @@ const onPlaying: EventListener = () => {
 
 ## Quality Change Mapping
 
-In the `adaptation` handler, call `player.getVariantTracks()` and find the track where `track.active === true`. Map its fields:
+Both `adaptation` (ABR switches) and `variantchanged` (manual selection) carry `newTrack` directly in the event data. Use a single shared handler for both events.
+
+Deduplication is bandwidth-based: store `lastQualityBandwidth: number | null` and skip if `track.bandwidth === lastQualityBandwidth`. Reset to `null` on `loading`.
+
+`framerate` is serialized as a string (e.g. `"29.97"`).
 
 | Shaka `TrackInfo` | Beacon `quality` field |
 |---|---|
 | `track.bandwidth` | `bitrate_bps` |
 | `track.width` | `width` |
 | `track.height` | `height` |
-| `track.frameRate` | `framerate` |
+| `String(track.frameRate)` | `framerate` |
 | `track.videoCodec` | `codec` |
 
 ```typescript
-const onAdaptation: EventListener = () => {
-  const track = this.player.getVariantTracks().find((t) => t.active);
-  if (!track) return;
+private emitQualityForTrack(track: ShakaTrack): void {
+  if (track.bandwidth === this.lastQualityBandwidth) return;
+  this.lastQualityBandwidth = track.bandwidth;
   this.emit({
     type: "quality_change",
     quality: {
       bitrate_bps: track.bandwidth,
       width: track.width ?? undefined,
       height: track.height ?? undefined,
-      framerate: track.frameRate ?? undefined,
+      framerate: track.frameRate != null ? String(track.frameRate) : undefined,
       codec: track.videoCodec ?? undefined,
     },
   });
+}
+
+// adaptation fires for ABR quality switches; variantchanged fires for manual selection.
+// Both carry newTrack directly in event data.
+const onVariantSwitch: EventListener = (e) => {
+  const newTrack = (e as any).newTrack as ShakaTrack | undefined;
+  if (newTrack) this.emitQualityForTrack(newTrack);
 };
+this.player.addEventListener("adaptation", onVariantSwitch);
+this.shakaHandlers.set("adaptation", onVariantSwitch);
+this.player.addEventListener("variantchanged", onVariantSwitch);
+this.shakaHandlers.set("variantchanged", onVariantSwitch);
 ```
 
 ---
@@ -500,7 +516,10 @@ Tests are in `tests/shaka.test.ts`. Each test is independent with `beforeEach` /
 | 12 | `seeked` buffer empty → `seek_end { buffer_ready:false }` | `currentTime=15.0`, buffered `[0,10]`, `seeked` | `processEvent({ type:"seek_end", to_ms:15000, buffer_ready:false })` |
 | 13 | `ended` → `ended` | `video.fire("ended")` | `processEvent({ type:"ended" })` |
 | 14 | `timeupdate` → `setPlayhead(ms)` | `currentTime=12.5`, `timeupdate` | `setPlayhead(12500)` |
-| 15 | `adaptation` → `quality_change` with track fields | `player.fireAdaptation()` | `processEvent({ type:"quality_change", quality:{ bitrate_bps:2500000, width:1280, height:720, framerate:29.97, codec:"avc1.4d401f" } })` |
+| 15 | `adaptation` with `newTrack` → `quality_change` | `player.fireAdaptation({ newTrack })` | `processEvent({ type:"quality_change", quality:{ bitrate_bps:2500000, width:1280, height:720, framerate:"29.97", codec:"avc1.4d401f" } })` |
+| 15b | Duplicate bandwidth → no second `quality_change` | fire `adaptation` twice with same bandwidth | `processEvent` called once |
+| 15c | `variantchanged` with `newTrack` → `quality_change` | `player.fireVariantChanged(track)` | `processEvent({ type:"quality_change", ... })` |
+| 15d | `variantchanged` during stall → `quality_change` | fire `stall` then `variantchanged` | `quality_change` emitted |
 | 16 | Shaka error `severity=CRITICAL` → `fatal:true` | `player.fireError(3016, 2)` | `processEvent({ type:"error", code:"3016", fatal:true, ... })` |
 | 17 | Shaka error `severity=RECOVERABLE` → `fatal:false` | `player.fireError(1001, 1)` | `processEvent({ type:"error", code:"1001", fatal:false, ... })` |
 | 18 | Video element `error` → `MEDIA_ERR_*` fatal | `video.error={code:3}`, `video.fire("error")` | `processEvent({ type:"error", code:"MEDIA_ERR_3", fatal:true })` |
@@ -518,7 +537,7 @@ Tests are in `tests/shaka.test.ts`. Each test is independent with `beforeEach` /
 | Manifest ready event | Hls.js `MANIFEST_PARSED` on Hls instance | Shaka `loaded` on player |
 | Buffer stall | `<video>` `waiting` event | Shaka `buffering` (`event.buffering === true`) |
 | Buffer recovery | `<video>` `playing` event (first_frame) | Shaka `buffering` (`event.buffering === false`) |
-| Quality change | `LEVEL_SWITCHED` + `hls.levels[n]` | Shaka `adaptation` + `player.getVariantTracks()` |
+| Quality change | `LEVEL_SWITCHED` + `hls.levels[n]` | Shaka `adaptation`/`variantchanged` + `event.newTrack` |
 | Error severity | `data.fatal === true` only | `detail.severity === 2` (fatal) or `=== 1` (non-fatal) |
 | Auto-cleanup trigger | `DESTROYING` event | `unloading` event |
 | `first_frame` guard | Not needed (Hls.js `playing` fires once on play start) | Required — `hasFiredFirstFrame` flag |

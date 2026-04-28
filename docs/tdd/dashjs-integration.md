@@ -149,7 +149,6 @@ interface DashjsPlayer {
   on(event: string, handler: (e?: unknown) => void, scope?: unknown): void;
   off(event: string, handler: (e?: unknown) => void, scope?: unknown): void;
   getSource(): string | null;
-  getCurrentRepresentationForType(type: 'video'): DashjsRepresentation | null;
 }
 ```
 
@@ -236,7 +235,7 @@ Handlers are stored in `playerHandlers` and added via `player.on(event, handler)
 | `PLAYBACK_STALLED` | Buffer exhausted; `hasFiredFirstFrame` | `{ type: "stall" }` — mid-playback stall |
 | `BUFFER_LOADED` | Buffer recovered | `{ type: "playing" }` — rebuffer recovery / resume |
 | `PLAYBACK_STARTED` | Playback begins or resumes | If `!hasFiredFirstFrame`: set flag, `emit({ type: "first_frame" })`; else no-op |
-| `QUALITY_CHANGE_RENDERED` | ABR switch visible on screen | `{ type: "quality_change", quality: { ... } }` |
+| `QUALITY_CHANGE_REQUESTED` | ABR decision to switch representation | `{ type: "quality_change", quality: { ... } }` |
 | `ERROR` | Player error | `{ type: "error", code, message, fatal: true }` |
 
 **`MANIFEST_LOADING_STARTED` source note**: Call `player.getSource()` synchronously within the handler. Also reset `hasFiredFirstFrame = false` here so the flag clears for each new source load.
@@ -274,32 +273,25 @@ Listeners are stored in `videoHandlers` and added via `video.addEventListener`.
 
 ## Quality Change Mapping
 
-In the `QUALITY_CHANGE_RENDERED` handler, call `player.getCurrentRepresentationForType('video')` to get the active representation. In MPEG-DASH, `bandwidth` is specified in bits per second.
+The `QUALITY_CHANGE_REQUESTED` event carries the new representation directly in its event data. This event fires when the ABR algorithm decides to switch — before the new segment is downloaded — which means it also fires during a mid-playback stall (rebuffering). This is preferable to `QUALITY_CHANGE_RENDERED` which fires only when the switch is visible on screen and may miss switches that happen during stalls.
 
-`frameRate` may be a numeric value or a fraction string (e.g. `"30000/1001"` for 29.97 fps). Parse it:
+Event data shape: `{ mediaType: string, newRepresentation: { index, bandwidth, width, height } }`. Filter to `mediaType === "video"` only.
 
-```typescript
-function parseFrameRate(fr: number | string | null | undefined): number | undefined {
-  if (fr == null) return undefined;
-  if (typeof fr === "number") return fr;
-  const parts = fr.split("/");
-  if (parts.length === 2) return Number(parts[0]) / Number(parts[1]);
-  return parseFloat(fr) || undefined;
-}
-```
+Deduplication is index-based: store `lastQualityIndex: number | null` and skip if `rep.index === lastQualityIndex`. Reset to `null` on `MANIFEST_LOADING_STARTED`.
 
 ```typescript
-const onQualityChangeRendered = () => {
-  const rep = this.player.getCurrentRepresentationForType('video');
-  if (!rep) return;
+const onQualityChangeRequested = (e?: unknown) => {
+  const data = e as { mediaType?: string; newRepresentation?: DashjsRepresentation } | undefined;
+  if (data?.mediaType !== "video" || !data.newRepresentation) return;
+  const rep = data.newRepresentation;
+  if (rep.index === this.lastQualityIndex) return;
+  this.lastQualityIndex = rep.index;
   this.emit({
     type: "quality_change",
     quality: {
       bitrate_bps: rep.bandwidth,
-      width: rep.width ?? undefined,
-      height: rep.height ?? undefined,
-      framerate: parseFrameRate(rep.frameRate),
-      codec: rep.codecs ?? undefined,
+      width: rep.width,
+      height: rep.height,
     },
   });
 };
@@ -493,7 +485,7 @@ async function setup(player: FakePlayer, video: FakeVideo, mockSession: ReturnTy
 | 12 | `seeked` buffer empty → `seek_end { buffer_ready:false }` | `currentTime=15.0`, buffered `[0,10]`, `seeked` | `processEvent({ type:"seek_end", to_ms:15000, buffer_ready:false })` |
 | 13 | `ended` video event → `ended` | `video.fire('ended')` | `processEvent({ type:"ended" })` |
 | 14 | `timeupdate` → `setPlayhead(ms)` | `currentTime=12.5`, `timeupdate` | `setPlayhead(12500)` |
-| 15 | `QUALITY_CHANGE_RENDERED` → `quality_change` with representation fields | `player.fire('qualityChangeRendered')` | `processEvent({ type:"quality_change", quality:{ bitrate_bps:2500000, width:1280, height:720, framerate:29.97, codec:"avc1.4d401f" } })` |
+| 15 | `QUALITY_CHANGE_REQUESTED` (video, new index) → `quality_change` | `player.fire('qualityChangeRequested', { mediaType:'video', newRepresentation:{ index:1, bandwidth:2500000, width:1280, height:720 } })` | `processEvent({ type:"quality_change", quality:{ bitrate_bps:2500000, width:1280, height:720 } })` |
 | 16 | `ERROR` event → `fatal: true` | `player.fire('error', { code: 34, message: "manifest error" })` | `processEvent({ type:"error", code:"34", fatal:true, message:"manifest error" })` |
 | 17 | Video element `error` → `MEDIA_ERR_*` fatal | `video.error={code:3}`, `video.fire("error")` | `processEvent({ type:"error", code:"MEDIA_ERR_3", fatal:true })` |
 | 18 | `destroy()` removes all listeners — post-destroy events ignored | `destroy()` then fire events | `processEvent` not called |
@@ -528,7 +520,7 @@ Unlike Hls.js (externalled, loaded from CDN) and Shaka (UMD global, loaded via `
 | Buffer recovery | `<video>` `playing` → `playing` event | Shaka `buffering(false)` → `playing` event | `BUFFER_LOADED` → `playing` event |
 | First frame signal | `<video>` `playing` (with guard) | `<video>` `playing` (with guard) | `PLAYBACK_STARTED` (with guard) |
 | Seek position source | `<video>` `seeking`/`seeked` | `<video>` `seeking`/`seeked` | `<video>` `seeking`/`seeked` |
-| Quality change | `LEVEL_SWITCHED` + `hls.levels[n]` | `adaptation` + `getVariantTracks()` | `QUALITY_CHANGE_RENDERED` + `getCurrentRepresentationForType()` |
+| Quality change | `LEVEL_SWITCHED` + `hls.levels[n]` | `adaptation`/`variantchanged` + `event.newTrack` | `QUALITY_CHANGE_REQUESTED` + `event.newRepresentation` |
 | Error severity | `data.fatal === true` | `detail.severity === 2` | All `ERROR` events: `fatal: true` |
 | Auto-cleanup trigger | `DESTROYING` event | `unloading` event | None — caller must call `destroy()` |
 | Package bundling | External (CDN script) | External (CDN UMD global) | Bundled directly (native ESM) |

@@ -38,7 +38,7 @@ All beacons in a batch belong to the same `play_id` and are ordered by ascending
 | `pause` | Playback paused by user or system. | — |
 | `seek` | Seek begins (debounced: fires once per gesture, at the start). | `seek_from_ms` |
 | `stall` | Buffer exhausted mid-playback (after first frame); player is stalling. | — |
-| `quality_change` | ABR rendition switch while playing. | `quality` |
+| `quality_change` | Rendition switch while playing or rebuffering. | `quality` |
 | `error` | Player error, fatal or non-fatal. Fatal errors end the session. | `error` |
 | `heartbeat` | Keepalive emitted when no other beacon has been sent for `heartbeat_interval_ms` and a session is active. | `playhead_ms` |
 | `ended` | `destroy()` was called while a session was active. | `playhead_ms` |
