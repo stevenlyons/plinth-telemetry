@@ -96,9 +96,7 @@ export class PlinthShaka {
     this.session.processEvent(event);
   }
 
-  private emitQualityChangeIfNeeded(): void {
-    const track = this.player.getVariantTracks().find((t) => t.active);
-    if (!track) return;
+  private emitQualityForTrack(track: ShakaTrack): void {
     if (track.bandwidth === this.lastQualityBandwidth) return;
     this.lastQualityBandwidth = track.bandwidth;
     this.emit({
@@ -111,6 +109,11 @@ export class PlinthShaka {
         codec: track.videoCodec ?? undefined,
       },
     });
+  }
+
+  private emitQualityChangeIfNeeded(): void {
+    const track = this.player.getVariantTracks().find((t) => t.active);
+    if (track) this.emitQualityForTrack(track);
   }
 
   private attachShakaListeners(): void {
@@ -145,10 +148,20 @@ export class PlinthShaka {
     this.player.addEventListener("buffering", onBuffering);
     this.shakaHandlers.set("buffering", onBuffering);
 
-    // adaptation fires for ABR quality switches during normal playback.
-    const onAdaptation: EventListener = () => this.emitQualityChangeIfNeeded();
-    this.player.addEventListener("adaptation", onAdaptation);
-    this.shakaHandlers.set("adaptation", onAdaptation);
+    // adaptation fires for ABR quality switches; variantchanged fires for manual selection.
+    // Both carry newTrack in event data; fall back to getVariantTracks() when absent.
+    const onVariantSwitch: EventListener = (e) => {
+      const newTrack = (e as any).newTrack as ShakaTrack | undefined;
+      if (newTrack) {
+        this.emitQualityForTrack(newTrack);
+      } else {
+        this.emitQualityChangeIfNeeded();
+      }
+    };
+    this.player.addEventListener("adaptation", onVariantSwitch);
+    this.shakaHandlers.set("adaptation", onVariantSwitch);
+    this.player.addEventListener("variantchanged", onVariantSwitch);
+    this.shakaHandlers.set("variantchanged", onVariantSwitch);
 
     const onError: EventListener = (e) => {
       const detail = (e as any).detail as
