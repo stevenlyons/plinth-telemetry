@@ -5,16 +5,17 @@ import type { PlinthSession } from "@wirevice/plinth-js";
 
 // ── FakePlayer ────────────────────────────────────────────────────────────────
 
+const REPRESENTATIONS = [
+  { index: 0, bandwidth: 800_000,   width: 640,  height: 360  },
+  { index: 1, bandwidth: 2_500_000, width: 1280, height: 720  },
+  { index: 2, bandwidth: 5_000_000, width: 1920, height: 1080 },
+];
+
 class FakePlayer {
   private listeners = new Map<string, Array<(e?: unknown) => void>>();
   private _source = "https://example.com/manifest.mpd";
-  _bitrateInfoList = [
-    { bitrate: 800_000,   width: 640,  height: 360, qualityIndex: 0 },
-    { bitrate: 2_500_000, width: 1280, height: 720, qualityIndex: 1 },
-    { bitrate: 5_000_000, width: 1920, height: 1080, qualityIndex: 2 },
-  ];
-  // currentQualityIndex is used by fireQualityChange to simulate the event data dash.js sends
-  currentQualityIndex = 1;
+  // currentRepIndex drives the auto-synthesized qualityChangeRendered payload
+  currentRepIndex = 1;
 
   on(event: string, handler: (e?: unknown) => void): void {
     if (!this.listeners.has(event)) this.listeners.set(event, []);
@@ -29,12 +30,11 @@ class FakePlayer {
   }
 
   getSource(): string { return this._source; }
-  getBitrateInfoListFor(): typeof this._bitrateInfoList { return this._bitrateInfoList; }
 
   fire(event: string, data?: unknown): void {
     // Synthesize dash.js QUALITY_CHANGE_RENDERED event data automatically
     const payload = event === "qualityChangeRendered" && data === undefined
-      ? { mediaType: "video", newQuality: this.currentQualityIndex }
+      ? { mediaType: "video", newRepresentation: REPRESENTATIONS[this.currentRepIndex] }
       : data;
     for (const h of [...(this.listeners.get(event) ?? [])]) h(payload);
   }
@@ -359,7 +359,7 @@ describe("PlinthDashjs", () => {
     player.fire("qualityChangeRendered"); // quality index 1 → 2_500_000 bps
 
     // swap to a lower rendition (index 0 → 800_000 bps)
-    player.currentQualityIndex = 0;
+    player.currentRepIndex = 0;
     player.fire("qualityChangeRendered");
 
     const qualityCalls = mockSession.processEvent.mock.calls.filter(

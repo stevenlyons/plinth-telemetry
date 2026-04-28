@@ -21,18 +21,17 @@ const DashjsEvents = {
 } as const;
 
 // Minimal structural interface — avoids importing dashjs in library code
-interface DashjsBitrateInfo {
-  bitrate: number;
+interface DashjsRepresentation {
+  index: number;
+  bandwidth: number;
   width: number;
   height: number;
-  qualityIndex: number;
 }
 
 interface DashjsPlayer {
   on(event: string, handler: (e?: unknown) => void, scope?: unknown): void;
   off(event: string, handler: (e?: unknown) => void, scope?: unknown): void;
   getSource(): string | null;
-  getBitrateInfoListFor(type: "video"): DashjsBitrateInfo[];
 }
 
 
@@ -133,18 +132,17 @@ export class PlinthDashjs {
     this.playerHandlers.set(DashjsEvents.STREAM_INITIALIZED, onStreamInitialized);
 
     const onQualityChangeRendered = (e?: unknown) => {
-      const data = e as { mediaType?: string; newQuality?: number } | undefined;
-      if (data?.mediaType !== "video" || data.newQuality == null) return;
-      if (data.newQuality === this.lastQualityIndex) return;
-      this.lastQualityIndex = data.newQuality;
-      const info = this.player.getBitrateInfoListFor("video")[data.newQuality];
-      if (!info) return;
+      const data = e as { mediaType?: string; newRepresentation?: DashjsRepresentation } | undefined;
+      if (data?.mediaType !== "video" || !data.newRepresentation) return;
+      const rep = data.newRepresentation;
+      if (rep.index === this.lastQualityIndex) return;
+      this.lastQualityIndex = rep.index;
       this.emit({
         type: "quality_change",
         quality: {
-          bitrate_bps: info.bitrate,
-          width: info.width,
-          height: info.height,
+          bitrate_bps: rep.bandwidth,
+          width: rep.width,
+          height: rep.height,
         },
       });
     };
